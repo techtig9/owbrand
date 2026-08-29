@@ -1,0 +1,2 @@
+export const securityHeaders={"X-Content-Type-Options":"nosniff","X-Frame-Options":"DENY","Referrer-Policy":"strict-origin-when-cross-origin","Permissions-Policy":"camera=(), microphone=(), geolocation=(self)","Cross-Origin-Opener-Policy":"same-origin"};
+export function withSecurityHeaders(response:Response){for(const [k,v] of Object.entries(securityHeaders))response.headers.set(k,v);return response;}

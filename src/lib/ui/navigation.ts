@@ -1,0 +1,16 @@
+export const APP_NAVIGATION = [
+  { id: "dashboard", label: "Dashboard", href: "/dashboard" },
+  { id: "brand", label: "Brand Brain", href: "/brand" },
+  { id: "products", label: "Products", href: "/products" },
+  { id: "creative", label: "Creative Studio", href: "/creative" },
+  { id: "campaigns", label: "Campaigns", href: "/campaigns" },
+  { id: "calendar", label: "Content Calendar", href: "/calendar" },
+  { id: "approvals", label: "Approval Inbox", href: "/approvals" },
+  { id: "social", label: "Social Accounts", href: "/social" },
+  { id: "analytics", label: "Analytics", href: "/analytics" },
+  { id: "recommendations", label: "AI Recommendations", href: "/recommendations" },
+  { id: "team", label: "Team", href: "/team" },
+  { id: "billing", label: "Billing", href: "/billing" },
+  { id: "settings", label: "Settings", href: "/settings" },
+  { id: "help", label: "Help & Support", href: "/help" },
+] as const;

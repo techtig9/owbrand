@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-canvas text-ink font-body antialiased;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-display text-ink;
+  }
+
+  ::selection {
+    @apply bg-blush-300 text-ink;
+  }
+
+  :focus-visible {
+    outline: 2px solid theme('colors.coral.500');
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+}
+
+@layer components {
+  /* Glass-panel card used across landing + dashboard, per the brand direction */
+  .glass-panel {
+    @apply relative rounded-2xl border border-white/60 bg-white/70 shadow-glass backdrop-blur-xl;
+  }
+
+  .section-eyebrow {
+    @apply inline-flex items-center gap-2 rounded-full border border-line bg-canvas-card px-3 py-1 text-xs font-medium uppercase tracking-[0.14em] text-ink-soft;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-ink px-6 py-3 text-sm font-semibold text-canvas shadow-soft transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-pop active:translate-y-0;
+  }
+
+  .btn-accent {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-coral-500 px-6 py-3 text-sm font-semibold text-white shadow-pop transition-transform duration-200 hover:-translate-y-0.5 hover:bg-coral-600 active:translate-y-0;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-line bg-transparent px-6 py-3 text-sm font-semibold text-ink transition-colors duration-200 hover:bg-canvas-alt;
+  }
+
+  .reveal {
+    @apply animate-reveal-up;
+  }
+
+  /* Card entrance per OWBRAND_MASTER_CLAUDE_BUILD_PROMPT §7: opacity 0→1,
+     scale ~0.98→1, restrained stagger via inline `animation-delay`. */
+  .reveal-scale {
+    animation: reveal-scale 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  @keyframes reveal-scale {
+    from {
+      opacity: 0;
+      transform: scale(0.98) translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+
+  /* Trusted-by / partner logo strip: neutral until hover, per the reference
+     agency-template pattern — never louder than the section's own accent. */
+  .trust-logo {
+    @apply grayscale opacity-50 transition duration-200 hover:grayscale-0 hover:opacity-100;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
