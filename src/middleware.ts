@@ -21,8 +21,15 @@ function isAuthOnlyPath(pathname: string): boolean {
 }
 
 export async function middleware(request: NextRequest) {
+  const path = request.nextUrl.pathname;
+
+  // Only routes that always render per-request can carry a nonce; see the note
+  // in lib/security/headers.ts. /dashboard and /admin read the session cookie,
+  // so they are always dynamic.
+  const dynamicRoute = path.startsWith('/dashboard') || path.startsWith('/admin');
+
   const nonce = generateCspNonce();
-  const csp = buildContentSecurityPolicy(nonce);
+  const csp = buildContentSecurityPolicy(nonce, { dynamicRoute });
 
   // Forward the nonce so the App Router can attach it to its bootstrap scripts.
   const requestHeaders = new Headers(request.headers);
@@ -67,7 +74,6 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  const path = request.nextUrl.pathname;
   const needsAuth = isProtectedPath(path);
   const isAuthPage = isAuthOnlyPath(path);
 

@@ -17,6 +17,21 @@
  *     Paddle; frame-src must allow Paddle's checkout overlay.
  */
 
+/**
+ * DEPLOYMENT NOTE: NEXT_PUBLIC_* variables are inlined by Next at BUILD time,
+ * so this origin is fixed when `next build` runs — changing the environment
+ * variable on an already-built artifact will NOT change the CSP, and the
+ * browser will then block Supabase requests with no visible error beyond a
+ * console violation.
+ *
+ * Consequence: the production build must be produced with the production
+ * NEXT_PUBLIC_SUPABASE_URL set. A single artifact cannot be promoted across
+ * projects that use different Supabase instances.
+ *
+ * A wildcard (https://*.supabase.co) would remove that constraint, but it would
+ * also let an XSS exfiltrate to any Supabase project, so the exact origin is
+ * preferred.
+ */
 const SUPABASE_ORIGIN = (() => {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   if (!url) return '';
@@ -42,18 +57,58 @@ export const baseSecurityHeaders: Record<string, string> = {
 };
 
 /**
- * Builds the CSP. In development Next needs 'unsafe-eval' for React Refresh;
- * production does not and must not get it.
+ * Builds the CSP.
+ *
+ * SCRIPT POLICY — why this is path-aware
+ *
+ * A nonce-based `script-src` with 'strict-dynamic' is the strongest option, but
+ * Next can only stamp a nonce onto HTML it renders per-request. Statically
+ * prerendered pages are built once, at build time, with no request and
+ * therefore no nonce — and because 'strict-dynamic' makes the browser ignore
+ * host allowlists and 'unsafe-inline', those pages' own bootstrap scripts get
+ * blocked. The symptom is subtle and severe: the page renders its server HTML,
+ * never hydrates, and any Suspense fallback stays on screen permanently.
+ *
+ * CSP3 also specifies that when a nonce is present, 'unsafe-inline' is ignored
+ * for inline scripts — so "send both" is not a workaround.
+ *
+ * Resolution: choose per path.
+ *   - /dashboard and /admin always render dynamically (they read the session
+ *     cookie), so they get the full nonce + 'strict-dynamic' policy. This is
+ *     where authenticated user data lives and where XSS would actually matter.
+ *   - Marketing and auth pages are statically generated and get 'unsafe-inline'
+ *     instead. Weaker for inline script injection, but every other directive
+ *     still applies: no eval, object-src 'none', frame-ancestors 'none',
+ *     base-uri 'self', form-action 'self', and a tight connect-src.
+ *
+ * Upgrade path (Phase 5): force dynamic rendering app-wide, or move to
+ * per-build script hashes, and then apply the nonce policy everywhere.
  */
-export function buildContentSecurityPolicy(nonce: string, isDev = process.env.NODE_ENV !== 'production'): string {
-  const scriptSrc = [
-    "'self'",
-    `'nonce-${nonce}'`,
-    "'strict-dynamic'",
-    'https://cdn.paddle.com',
-    'https://sandbox-cdn.paddle.com',
-    isDev ? "'unsafe-eval'" : '',
-  ].filter(Boolean);
+export function buildContentSecurityPolicy(
+  nonce: string,
+  options: { dynamicRoute?: boolean; isDev?: boolean } = {}
+): string {
+  const isDev = options.isDev ?? process.env.NODE_ENV !== 'production';
+  const dynamicRoute = options.dynamicRoute ?? false;
+
+  const scriptSrc = dynamicRoute
+    ? [
+        "'self'",
+        `'nonce-${nonce}'`,
+        "'strict-dynamic'",
+        'https://cdn.paddle.com',
+        'https://sandbox-cdn.paddle.com',
+        isDev ? "'unsafe-eval'" : '',
+      ].filter(Boolean)
+    : [
+        "'self'",
+        // Required by Next's statically generated bootstrap scripts, which
+        // cannot carry a nonce. See the note above.
+        "'unsafe-inline'",
+        'https://cdn.paddle.com',
+        'https://sandbox-cdn.paddle.com',
+        isDev ? "'unsafe-eval'" : '',
+      ].filter(Boolean);
 
   const connectSrc = [
     "'self'",
