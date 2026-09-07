@@ -1,27 +1,54 @@
-import { NextResponse } from "next/server";
-import { buildProductPipeline } from "@/lib/product/product-pipeline";
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { routeHandler } from '@/lib/api/errors';
+import { parseJsonBody, uuidSchema } from '@/lib/api/validate';
+import { requireUser, assertProductAccess } from '@/lib/auth/guards';
+import { enforceRateLimit } from '@/lib/security/rate-limit';
+import { buildProductPipeline } from '@/lib/product/product-pipeline';
+import { supabaseAdmin } from '@/lib/supabase/admin';
 
-export async function POST(request: Request) {
-  try {
-    const body = await request.json();
+/**
+ * SECURITY FIX (Phase 1)
+ * Previously unauthenticated and it accepted productId, productName, approved
+ * facts and brand rules entirely from the request body. The product is now
+ * looked up and authorized, and its real stored facts are used — a caller
+ * cannot inject "approved facts", which the master command forbids the AI
+ * layer from inventing.
+ */
+const Body = z.object({
+  productId: uuidSchema,
+  sourceImages: z.array(z.string().url()).max(20).optional(),
+});
 
-    if (!body.productId || !body.productName) {
-      return NextResponse.json(
-        { error: "productId and productName are required" },
-        { status: 400 },
-      );
-    }
+export const POST = routeHandler('/api/product/pipeline', async (request: Request) => {
+  const user = await requireUser();
+  await enforceRateLimit('standard', user.id);
 
-    return NextResponse.json(
-      buildProductPipeline({
-        productId: body.productId,
-        productName: body.productName,
-        sourceImages: Array.isArray(body.sourceImages) ? body.sourceImages : [],
-        approvedFacts: body.approvedFacts ?? {},
-        brandRules: body.brandRules ?? {},
-      }),
-    );
-  } catch {
-    return NextResponse.json({ error: "Unable to build product pipeline" }, { status: 500 });
-  }
-}
+  const body = await parseJsonBody(request, Body);
+  const db = supabaseAdmin();
+
+  const { product, brand } = await assertProductAccess(user.id, body.productId, { db });
+
+  // Approved facts and brand rules come from the database, never the caller.
+  const { data: facts } = await db
+    .from('products')
+    .select('approved_facts')
+    .eq('id', body.productId)
+    .maybeSingle();
+
+  const { data: guidelines } = await db
+    .from('brand_guidelines')
+    .select('do_rules, dont_rules, preferred_words, avoided_words')
+    .eq('brand_id', brand.id)
+    .maybeSingle();
+
+  return NextResponse.json(
+    buildProductPipeline({
+      productId: product.id as string,
+      productName: product.name as string,
+      sourceImages: body.sourceImages ?? [],
+      approvedFacts: (facts as { approved_facts?: Record<string, unknown> } | null)?.approved_facts ?? {},
+      brandRules: (guidelines as Record<string, unknown> | null) ?? {},
+    })
+  );
+});

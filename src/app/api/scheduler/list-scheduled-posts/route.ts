@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 
+// Reads the session cookie, so it can never be statically prerendered.
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 });
