@@ -8,7 +8,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify": "npm run type-check && npm run lint && npm run test && npm run build"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
@@ -17,6 +20,8 @@
     "@paddle/paddle-node-sdk": "^2.1.0",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.45.4",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.38.4",
     "archiver": "^7.0.1",
     "clsx": "^2.1.1",
     "framer-motion": "^11.5.4",
@@ -24,6 +29,7 @@
     "next": "14.2.13",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "resend": "^6.26.0",
     "sonner": "^1.5.0",
     "zod": "^3.23.8"
   },
@@ -37,7 +43,9 @@
     "eslint-config-next": "14.2.13",
     "postcss": "^8.4.45",
     "tailwindcss": "^3.4.10",
-    "typescript": "^5.5.4"
+    "typescript": "^5.5.4",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^2.1.9"
   },
   "engines": {
     "node": ">=18.17.0"

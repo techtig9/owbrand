@@ -57,7 +57,7 @@ export default function ContentStudioPage() {
     <div className="mx-auto max-w-4xl space-y-8">
       <div>
         <h1 className="font-display text-2xl font-bold text-ink">Content Studio</h1>
-        <p className="mt-1 text-sm text-ink-soft">Paid plans only — keep your brand's content fresh from here.</p>
+        <p className="mt-1 text-sm text-ink-soft">Paid plans only — keep your brand&rsquo;s content fresh from here.</p>
       </div>
 
       <div className="glass-panel space-y-5 p-6">
