@@ -1,43 +1,43 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getCurrentUser } from '@/lib/supabase/server';
+import { routeHandler, ApiError } from '@/lib/api/errors';
+import { parseJsonBody, uuidSchema } from '@/lib/api/validate';
+import { requireUser, assertBrandAccess } from '@/lib/auth/guards';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { canUseFeature } from '@/lib/credits';
-import { PLANS } from '@/lib/plans';
-import type { PlanId } from '@/types';
 
-const bodySchema = z.object({ brandId: z.string().uuid() });
+export const dynamic = 'force-dynamic';
 
-export async function POST(req: NextRequest) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 });
+const Body = z.object({ brandId: uuidSchema });
 
-  const parsed = bodySchema.safeParse(await req.json());
-  if (!parsed.success) return NextResponse.json({ error: 'Invalid request.' }, { status: 400 });
-  const { brandId } = parsed.data;
+/**
+ * Deploy a generated site to Netlify.
+ *
+ * Same story as deploy-vercel, and the same two defects: a phantom `pending`
+ * row returned as a 200 success, and `brandId` written with no access check.
+ * See that file's header for the reasoning and for what finishing this
+ * requires — here the call is
+ * `POST /api/v1/sites/{site_id}/deploys` with `NETLIFY_API_TOKEN`.
+ */
+export const POST = routeHandler('/api/deployment/deploy-netlify', async (request: Request) => {
+  const user = await requireUser();
+  const { brandId } = await parseJsonBody(request, Body);
+
+  await assertBrandAccess(user.id, brandId, { db: supabaseAdmin() });
 
   const gate = await canUseFeature(user, 'deploy');
-  if (!gate.allowed) return NextResponse.json({ error: gate.reason, upgradeRequired: true }, { status: 402 });
+  if (!gate.allowed) throw ApiError.paymentRequired(gate.reason ?? 'Your plan does not include deployment.');
 
-  if (user.role !== 'admin') {
-    const supabase = supabaseAdmin();
-    const { data: subscription } = await supabase.from('subscriptions').select('plan').eq('user_id', user.id).maybeSingle();
-    const plan: PlanId = (subscription?.plan as PlanId) ?? 'free';
-    if (!PLANS[plan].features.deployNetlify) {
-      return NextResponse.json({ error: 'Deploying to Netlify requires a paid plan.', upgradeRequired: true }, { status: 402 });
-    }
-  }
+  throw ApiError.notConfigured(
+    'One-click deployment to Netlify is not available yet. Export your site and deploy it from your own Netlify account in the meantime.'
+  );
+});
 
-  const supabase = supabaseAdmin();
-  const { data: deployment, error } = await supabase
-    .from('deployments')
-    .insert({ project_id: brandId, provider: 'netlify', status: 'pending' })
-    .select()
-    .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  // TODO: call the Netlify API (POST /api/v1/sites/{site_id}/deploys) with
-  // NETLIFY_API_TOKEN, then poll for status the same way as deploy-vercel.
-
-  return NextResponse.json({ deployment });
-}
+export const GET = routeHandler('/api/deployment/deploy-netlify', async () => {
+  await requireUser();
+  return NextResponse.json({
+    provider: 'netlify',
+    available: false,
+    reason: 'The Netlify deployment adapter is not implemented.',
+  });
+});

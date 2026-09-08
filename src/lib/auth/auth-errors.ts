@@ -18,6 +18,7 @@ export type AuthErrorCode =
   | 'oauth_failed'
   | 'session_expired'
   | 'provider_not_configured'
+  | 'not_configured'
   | 'unknown';
 
 export interface FriendlyAuthError {
@@ -36,6 +37,16 @@ export function toFriendlyAuthError(error: unknown): FriendlyAuthError {
   const raw = (err.message ?? '').toLowerCase();
   const code = (err.code ?? '').toLowerCase();
 
+  /*
+   * The deployment itself is missing credentials — publicEnv throws
+   * MissingEnvError before any request is made. Distinguished from every case
+   * below because "Something went wrong, please try again" sends a visitor
+   * into a retry loop over a problem only the operator can fix.
+   */
+  if (raw.includes('missing required environment variable')) {
+    return { code: 'not_configured', message: CALLBACK_ERROR_MESSAGES.not_configured };
+  }
+
   if (raw.includes('invalid login credentials') || code === 'invalid_credentials') {
     return {
       code: 'invalid_credentials',
@@ -50,14 +61,21 @@ export function toFriendlyAuthError(error: unknown): FriendlyAuthError {
     };
   }
 
-  if (raw.includes('already registered') || raw.includes('already exists') || code === 'user_already_exists') {
+  if (
+    raw.includes('already registered') ||
+    raw.includes('already exists') ||
+    code === 'user_already_exists'
+  ) {
     return {
       code: 'user_already_exists',
       message: 'That email is already registered. Try logging in instead.',
     };
   }
 
-  if (raw.includes('password') && (raw.includes('weak') || raw.includes('at least') || raw.includes('short'))) {
+  if (
+    raw.includes('password') &&
+    (raw.includes('weak') || raw.includes('at least') || raw.includes('short'))
+  ) {
     return {
       code: 'weak_password',
       message: 'Choose a stronger password — at least 8 characters, and not a common one.',
@@ -103,6 +121,11 @@ export const CALLBACK_ERROR_MESSAGES: Record<string, string> = {
   missing_code: 'That sign-in link was incomplete. Please try again.',
   link_expired: 'That link has expired. Please request a new one.',
   provider_error: 'Your sign-in provider reported a problem. Please try again.',
+  /* Set by middleware when the deployment has no Supabase credentials. It is
+     an operator problem, not a user error, so the copy says so plainly rather
+     than blaming the visitor's details. */
+  not_configured:
+    'This deployment is not connected to a database yet, so signing in is unavailable. If you are the operator, set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.',
 };
 
 export function callbackErrorMessage(code: string | null | undefined): string | null {

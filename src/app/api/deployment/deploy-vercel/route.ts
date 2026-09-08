@@ -1,45 +1,62 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { getCurrentUser } from '@/lib/supabase/server';
+import { routeHandler, ApiError } from '@/lib/api/errors';
+import { parseJsonBody, uuidSchema } from '@/lib/api/validate';
+import { requireUser, assertBrandAccess } from '@/lib/auth/guards';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { canUseFeature } from '@/lib/credits';
-import { PLANS } from '@/lib/plans';
-import type { PlanId } from '@/types';
 
-const bodySchema = z.object({ brandId: z.string().uuid() });
+export const dynamic = 'force-dynamic';
 
-/** Deploy is free (0 credits) but Free-plan users can't deploy at all. */
-export async function POST(req: NextRequest) {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 });
+const Body = z.object({ brandId: uuidSchema });
 
-  const parsed = bodySchema.safeParse(await req.json());
-  if (!parsed.success) return NextResponse.json({ error: 'Invalid request.' }, { status: 400 });
-  const { brandId } = parsed.data;
+/**
+ * Deploy a generated site to Vercel.
+ *
+ * THE ADAPTER IS NOT BUILT. This route now says so.
+ *
+ * What it did before: checked the plan gate, inserted a `deployments` row with
+ * `status: 'pending'`, and returned `{ deployment }` with HTTP 200. The client
+ * had no way to tell that apart from a real deployment — so the UI showed a
+ * deployment in progress that would never advance, and the table filled with
+ * `pending` rows that no worker would ever claim. Two rules from the operating
+ * instructions apply directly: never mark an unfinished integration complete,
+ * and keep external integrations behind adapters.
+ *
+ * It also accepted `brandId` and wrote it into `project_id` WITHOUT checking
+ * that the caller may access that brand — a cross-tenant write. The plan gate
+ * above it checked what the caller was entitled to do, never what they were
+ * entitled to do it TO. That check is now first.
+ *
+ * To finish this: add `src/lib/deploy/providers/vercel.ts` exposing
+ * `createDeployment(files, config)` and `getDeploymentStatus(id)` against
+ * `POST /v13/deployments`, read `VERCEL_API_TOKEN` through `serverEnv`, drive
+ * it from a durable job the way `lib/publishing/worker.ts` drives publishing
+ * (lease, retry with backoff, terminal states), and only then insert the row —
+ * created with the provider's own id so the status poll is idempotent.
+ */
+export const POST = routeHandler('/api/deployment/deploy-vercel', async (request: Request) => {
+  const user = await requireUser();
+  const { brandId } = await parseJsonBody(request, Body);
+
+  // Ownership before entitlement: a caller must have access to this brand
+  // whatever their plan says.
+  await assertBrandAccess(user.id, brandId, { db: supabaseAdmin() });
 
   const gate = await canUseFeature(user, 'deploy');
-  if (!gate.allowed) return NextResponse.json({ error: gate.reason, upgradeRequired: true }, { status: 402 });
+  if (!gate.allowed) throw ApiError.paymentRequired(gate.reason ?? 'Your plan does not include deployment.');
 
-  if (user.role !== 'admin') {
-    const supabase = supabaseAdmin();
-    const { data: subscription } = await supabase.from('subscriptions').select('plan').eq('user_id', user.id).maybeSingle();
-    const plan: PlanId = (subscription?.plan as PlanId) ?? 'free';
-    if (!PLANS[plan].features.deployVercel) {
-      return NextResponse.json({ error: 'Deploying to Vercel requires a paid plan.', upgradeRequired: true }, { status: 402 });
-    }
-  }
+  throw ApiError.notConfigured(
+    'One-click deployment to Vercel is not available yet. Export your site and deploy it from your own Vercel account in the meantime.'
+  );
+});
 
-  const supabase = supabaseAdmin();
-  const { data: deployment, error } = await supabase
-    .from('deployments')
-    .insert({ project_id: brandId, provider: 'vercel', status: 'pending' })
-    .select()
-    .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  // TODO: call the Vercel REST API (POST /v13/deployments) with VERCEL_API_TOKEN,
-  // passing the exported project files, then poll for status and update this row
-  // (building → live/failed) plus set deployment_url once Vercel assigns one.
-
-  return NextResponse.json({ deployment });
-}
+/** Kept so the client can ask whether the feature exists before offering it. */
+export const GET = routeHandler('/api/deployment/deploy-vercel', async () => {
+  await requireUser();
+  return NextResponse.json({
+    provider: 'vercel',
+    available: false,
+    reason: 'The Vercel deployment adapter is not implemented.',
+  });
+});

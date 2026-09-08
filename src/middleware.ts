@@ -1,6 +1,12 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 import { buildContentSecurityPolicy, generateCspNonce, baseSecurityHeaders } from '@/lib/security/headers';
+import {
+  isAuthOnlyPath,
+  isProtectedPath,
+  unconfiguredDeploymentAction,
+} from '@/lib/security/deployment-guard';
+import { isConfigured } from '@/lib/env';
 
 /**
  * Session refresh, route protection, and per-request CSP.
@@ -9,16 +15,6 @@ import { buildContentSecurityPolicy, generateCspNonce, baseSecurityHeaders } fro
  * and security headers reach marketing and auth pages too. Auth work is scoped
  * to the routes that need it.
  */
-
-/** Paths that require a signed-in user. */
-function isProtectedPath(pathname: string): boolean {
-  return pathname.startsWith('/dashboard') || pathname.startsWith('/admin');
-}
-
-/** Signed-in users are bounced away from these back into the app. */
-function isAuthOnlyPath(pathname: string): boolean {
-  return pathname === '/login' || pathname === '/signup';
-}
 
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
@@ -37,6 +33,22 @@ export async function middleware(request: NextRequest) {
   requestHeaders.set('content-security-policy', csp);
 
   let response = NextResponse.next({ request: { headers: requestHeaders } });
+
+  /*
+   * Missing Supabase credentials used to take the whole deployment down:
+   * createServerClient() throws on an empty URL, and it ran below on every
+   * matched request. Degrade deliberately instead — public pages render so an
+   * operator can read /api/ready, gated pages refuse. See
+   * lib/security/deployment-guard.ts.
+   */
+  if (!isConfigured.supabase()) {
+    if (unconfiguredDeploymentAction(path) === 'refuse') {
+      const redirectUrl = new URL('/login', request.url);
+      redirectUrl.searchParams.set('error', 'not_configured');
+      return applyHeaders(NextResponse.redirect(redirectUrl), csp);
+    }
+    return applyHeaders(response, csp);
+  }
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
