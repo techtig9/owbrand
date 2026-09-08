@@ -861,6 +861,353 @@ end $$;
 reset role;
 reset request.jwt.claim.sub;
 
+
+-- ===========================================================================
+-- Phase 4 — analytics ingestion, attribution and recommendations
+-- ===========================================================================
+-- Asserts the properties only the database can guarantee: that re-ingesting a
+-- day is an upsert rather than a duplicate, that a later measurement wins,
+-- that spend recorded elsewhere is not wiped by a zero from insights, that a
+-- recommendation cannot be stored without evidence, and that a tenant can read
+-- but never write its own analytics.
+-- ---------------------------------------------------------------------------
+
+reset role;
+reset request.jwt.claim.sub;
+
+-- --- Idempotent re-ingestion -----------------------------------------------
+do $$
+declare
+  row_count_before integer;
+  row_count_after integer;
+  stored public.analytics_daily;
+begin
+  -- First ingestion of a day.
+  stored := public.upsert_daily_metrics(
+    'aaaaaaaa-0000-0000-0000-000000000001', 'instagram', 'ig_alice', '2026-09-01',
+    'a0000000-0000-0000-0000-0000000000a1',
+    800, 1000, 50, 0, 0, 0, 0, 0,
+    '{"metricsReported":["impressions","reach","engagements"]}'::jsonb);
+
+  insert into _results values ('analytics: first ingestion writes the day', stored.impressions = 1000,
+    format('impressions %s', stored.impressions));
+
+  select count(*) into row_count_before from public.analytics_daily
+   where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001' and metric_date = '2026-09-01';
+
+  -- Same day again with REVISED numbers — the normal case, because platforms
+  -- restate recent figures for up to 72 hours.
+  stored := public.upsert_daily_metrics(
+    'aaaaaaaa-0000-0000-0000-000000000001', 'instagram', 'ig_alice', '2026-09-01',
+    'a0000000-0000-0000-0000-0000000000a1',
+    900, 1200, 70, 0, 0, 0, 0, 0,
+    '{"metricsReported":["impressions","reach","engagements"]}'::jsonb);
+
+  select count(*) into row_count_after from public.analytics_daily
+   where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001' and metric_date = '2026-09-01';
+
+  insert into _results values ('analytics: re-ingesting a day does not duplicate it',
+    row_count_before = 1 and row_count_after = 1, format('%s then %s rows', row_count_before, row_count_after));
+
+  insert into _results values ('analytics: the later measurement wins', stored.impressions = 1200,
+    format('impressions %s', stored.impressions));
+end $$;
+
+-- --- Spend and revenue are not clobbered by a zero -------------------------
+do $$
+declare stored public.analytics_daily;
+begin
+  -- Ad spend recorded from an ad account or the tenant's commerce data.
+  update public.analytics_daily set spend = 250, revenue = 900
+   where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001' and metric_date = '2026-09-01';
+
+  -- Insights ingestion runs again and reports no spend, because platform
+  -- insights never carry it. It must not wipe the real figure.
+  stored := public.upsert_daily_metrics(
+    'aaaaaaaa-0000-0000-0000-000000000001', 'instagram', 'ig_alice', '2026-09-01',
+    'a0000000-0000-0000-0000-0000000000a1',
+    900, 1200, 70, 0, 0, 0, 0, 0, '{}'::jsonb);
+
+  insert into _results values ('analytics: insights zero does not wipe recorded spend', stored.spend = 250,
+    format('spend %s', stored.spend));
+  insert into _results values ('analytics: insights zero does not wipe recorded revenue', stored.revenue = 900,
+    format('revenue %s', stored.revenue));
+end $$;
+
+-- --- Post metric snapshots -------------------------------------------------
+do $$
+declare
+  stored public.post_metrics;
+  snapshots integer;
+begin
+  stored := public.upsert_post_metrics(
+    'aaaaaaaa-0000-0000-0000-000000000001', null, 'instagram', 'ig_media_1', '2026-09-05',
+    '2026-09-01T10:00:00Z', 500, 400, 30, 20, 5, 3, 2, 0, 0, '{}'::jsonb);
+
+  insert into _results values ('analytics: post snapshot written', stored.impressions = 500,
+    format('impressions %s', stored.impressions));
+
+  -- Same post, same snapshot day, revised: upsert.
+  stored := public.upsert_post_metrics(
+    'aaaaaaaa-0000-0000-0000-000000000001', null, 'instagram', 'ig_media_1', '2026-09-05',
+    '2026-09-01T10:00:00Z', 650, 500, 45, 30, 8, 4, 3, 0, 0, '{}'::jsonb);
+
+  select count(*) into snapshots from public.post_metrics
+   where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001' and external_post_id = 'ig_media_1';
+
+  insert into _results values ('analytics: same-day post re-snapshot upserts', snapshots = 1,
+    format('%s rows', snapshots));
+
+  -- A DIFFERENT day is a new snapshot, because engagement keeps accruing and
+  -- "impressions as measured on the 6th" is a distinct fact.
+  stored := public.upsert_post_metrics(
+    'aaaaaaaa-0000-0000-0000-000000000001', null, 'instagram', 'ig_media_1', '2026-09-06',
+    '2026-09-01T10:00:00Z', 900, 700, 60, 40, 10, 6, 4, 0, 0, '{}'::jsonb);
+
+  select count(*) into snapshots from public.post_metrics
+   where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001' and external_post_id = 'ig_media_1';
+
+  insert into _results values ('analytics: a new snapshot day is a new row', snapshots = 2,
+    format('%s rows', snapshots));
+end $$;
+
+-- --- Attribution touchpoint idempotency ------------------------------------
+do $$
+declare ok boolean := false;
+begin
+  insert into public.attribution_touchpoints
+    (brand_id, platform, external_event_id, journey_key, occurred_at, conversions, revenue)
+  values ('aaaaaaaa-0000-0000-0000-000000000001', 'facebook', 'order-1001', 'visitor-77',
+          '2026-09-03T12:00:00Z', 1, 300);
+
+  -- A retried conversion webhook must not record the sale twice: that would
+  -- inflate revenue and every ROAS figure derived from it.
+  begin
+    insert into public.attribution_touchpoints
+      (brand_id, platform, external_event_id, occurred_at, conversions, revenue)
+    values ('aaaaaaaa-0000-0000-0000-000000000001', 'facebook', 'order-1001',
+            '2026-09-03T12:00:00Z', 1, 300);
+  exception when unique_violation then ok := true;
+  end;
+
+  insert into _results values ('attribution: duplicate event id rejected', ok,
+    case when ok then 'unique violation raised' else 'DOUBLE-COUNTED CONVERSION ALLOWED' end);
+
+  -- The same event id under ANOTHER brand is a different event.
+  ok := true;
+  begin
+    insert into public.attribution_touchpoints
+      (brand_id, platform, external_event_id, occurred_at, conversions, revenue)
+    values ('bbbbbbbb-0000-0000-0000-000000000001', 'facebook', 'order-1001',
+            '2026-09-03T12:00:00Z', 1, 300);
+  exception when others then ok := false;
+  end;
+  insert into _results values ('attribution: event ids are scoped per brand', ok, '');
+end $$;
+
+-- --- Recommendations require evidence --------------------------------------
+do $$
+declare
+  rec public.ai_recommendations;
+  ok boolean := false;
+  open_rows integer;
+begin
+  -- A recommendation the user cannot audit is indistinguishable from a
+  -- fabricated one, so the database refuses it.
+  begin
+    rec := public.upsert_recommendation(
+      'aaaaaaaa-0000-0000-0000-000000000001', null, 'engagement_declining',
+      'Engagement is falling', 'Do something.', 'high', 'improve_hooks',
+      0.7, '{}'::jsonb, 30, 5000, 'deterministic', null);
+  exception when others then ok := true;
+  end;
+  insert into _results values ('recommendations: empty evidence rejected', ok,
+    case when ok then 'raised' else 'STORED WITHOUT EVIDENCE' end);
+
+  ok := false;
+  begin
+    rec := public.upsert_recommendation(
+      'aaaaaaaa-0000-0000-0000-000000000001', null, 'engagement_declining',
+      'Engagement is falling', 'Do something.', 'high', 'improve_hooks',
+      1.5, '{"engagementRate":0.02}'::jsonb, 30, 5000, 'deterministic', null);
+  exception when others then ok := true;
+  end;
+  insert into _results values ('recommendations: out-of-range confidence rejected', ok,
+    case when ok then 'raised' else 'CONFIDENCE > 1 ACCEPTED' end);
+
+  -- A valid one.
+  rec := public.upsert_recommendation(
+    'aaaaaaaa-0000-0000-0000-000000000001', null, 'engagement_declining',
+    'Engagement is falling', 'Try shorter hooks.', 'high', 'improve_hooks',
+    0.62, '{"engagementRate":0.02,"previousEngagementRate":0.05}'::jsonb, 30, 5000, 'deterministic', null);
+
+  insert into _results values ('recommendations: valid row stored with confidence', rec.confidence = 0.620,
+    format('confidence %s', rec.confidence));
+
+  -- Regenerating must REFRESH the open row, not stack duplicates every cron run.
+  rec := public.upsert_recommendation(
+    'aaaaaaaa-0000-0000-0000-000000000001', null, 'engagement_declining',
+    'Engagement is still falling', 'Try shorter hooks and a new opening frame.', 'high', 'improve_hooks',
+    0.71, '{"engagementRate":0.018,"previousEngagementRate":0.05}'::jsonb, 30, 6000, 'ai', 'claude');
+
+  select count(*) into open_rows from public.ai_recommendations
+   where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001'
+     and signal = 'engagement_declining' and status = 'open';
+
+  insert into _results values ('recommendations: regenerating refreshes rather than duplicates', open_rows = 1,
+    format('%s open rows', open_rows));
+  insert into _results values ('recommendations: refresh updates confidence', rec.confidence = 0.710,
+    format('confidence %s', rec.confidence));
+
+  -- A dismissed recommendation must stay dismissed: the unique index and the
+  -- update both scope to status = 'open'.
+  update public.ai_recommendations set status = 'dismissed'
+   where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001' and signal = 'engagement_declining';
+
+  rec := public.upsert_recommendation(
+    'aaaaaaaa-0000-0000-0000-000000000001', null, 'engagement_declining',
+    'Engagement is falling again', 'New advice.', 'high', 'improve_hooks',
+    0.5, '{"engagementRate":0.019}'::jsonb, 30, 5000, 'deterministic', null);
+
+  select count(*) into open_rows from public.ai_recommendations
+   where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001'
+     and signal = 'engagement_declining' and status = 'dismissed';
+
+  insert into _results values ('recommendations: a dismissed row is not resurrected', open_rows = 1,
+    format('%s dismissed rows', open_rows));
+end $$;
+
+-- --- Ingestion cursor ------------------------------------------------------
+do $$
+declare ok boolean := false;
+begin
+  insert into public.analytics_ingestion_state (brand_id, platform, social_account_id, last_ingested_date)
+  values ('aaaaaaaa-0000-0000-0000-000000000001', 'instagram',
+          'a0000000-0000-0000-0000-0000000000a1', '2026-09-01');
+
+  -- One cursor per (brand, platform, account): two would race and create gaps.
+  begin
+    insert into public.analytics_ingestion_state (brand_id, platform, social_account_id)
+    values ('aaaaaaaa-0000-0000-0000-000000000001', 'instagram',
+            'a0000000-0000-0000-0000-0000000000a1');
+  exception when unique_violation then ok := true;
+  end;
+
+  insert into _results values ('analytics: one ingestion cursor per account', ok,
+    case when ok then 'unique violation raised' else 'DUPLICATE CURSOR ALLOWED' end);
+end $$;
+
+-- --- RLS: analytics are readable but not writable by tenants ---------------
+set role authenticated;
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+do $$
+declare n integer;
+begin
+  select count(*) into n from public.analytics_daily;
+  insert into _results values ('rls: Alice sees only her own analytics', n > 0 and n = (
+    select count(*) from public.analytics_daily
+     where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001'), format('%s rows', n));
+
+  select count(*) into n from public.post_metrics;
+  insert into _results values ('rls: Alice sees only her own post metrics', n = 2, format('%s rows', n));
+
+  select count(*) into n from public.ai_recommendations;
+  insert into _results values ('rls: Alice sees her own recommendations', n > 0, format('%s rows', n));
+
+  select count(*) into n from public.analytics_ingestion_state;
+  insert into _results values ('rls: Alice sees her own ingestion state', n = 1, format('%s rows', n));
+
+  select count(*) into n from public.attribution_touchpoints
+   where brand_id = 'bbbbbbbb-0000-0000-0000-000000000001';
+  insert into _results values ('rls: Alice cannot read Bob''s touchpoints', n = 0, format('%s rows', n));
+end $$;
+
+do $$
+declare affected integer;
+begin
+  -- A tenant that could write its own analytics could manufacture the evidence
+  -- its recommendations cite, which makes the whole confidence mechanism
+  -- worthless.
+  insert into public.analytics_daily (brand_id, platform, metric_date, impressions)
+  values ('aaaaaaaa-0000-0000-0000-000000000001', 'instagram', '2026-09-20', 999999);
+  insert into _results values ('rls: tenant cannot insert analytics', false, 'INSERT SUCCEEDED');
+exception when insufficient_privilege or others then
+  insert into _results values ('rls: tenant cannot insert analytics', true, 'refused');
+end $$;
+
+do $$
+declare affected integer;
+begin
+  update public.analytics_daily set impressions = 999999 where true;
+  get diagnostics affected = row_count;
+  insert into _results values ('rls: tenant cannot rewrite analytics', affected = 0,
+    format('%s rows updated', affected));
+
+  update public.post_metrics set impressions = 999999 where true;
+  get diagnostics affected = row_count;
+  insert into _results values ('rls: tenant cannot rewrite post metrics', affected = 0,
+    format('%s rows updated', affected));
+end $$;
+
+do $$
+declare affected integer;
+begin
+  -- Resolving a recommendation IS the tenant's to do.
+  update public.ai_recommendations set status = 'applied'
+   where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001';
+  get diagnostics affected = row_count;
+  insert into _results values ('rls: tenant CAN resolve its own recommendation', affected > 0,
+    format('%s rows updated', affected));
+end $$;
+
+do $$
+declare affected integer;
+begin
+  -- Recording a touchpoint from the tenant's own site or CRM is legitimate.
+  insert into public.attribution_touchpoints
+    (brand_id, platform, external_event_id, occurred_at, conversions, revenue)
+  values ('aaaaaaaa-0000-0000-0000-000000000001', 'instagram', 'order-2002',
+          '2026-09-04T09:00:00Z', 1, 120);
+  insert into _results values ('rls: tenant CAN record its own touchpoint', true, '');
+exception when others then
+  insert into _results values ('rls: tenant CAN record its own touchpoint', false, 'INSERT REFUSED');
+end $$;
+
+do $$
+declare ok boolean := false;
+begin
+  -- But not into someone else's brand.
+  begin
+    insert into public.attribution_touchpoints
+      (brand_id, platform, external_event_id, occurred_at, conversions, revenue)
+    values ('bbbbbbbb-0000-0000-0000-000000000001', 'instagram', 'order-3003',
+            '2026-09-04T09:00:00Z', 1, 500);
+  exception when others then ok := true;
+  end;
+  insert into _results values ('rls: tenant cannot record a touchpoint on another brand', ok,
+    case when ok then 'refused' else 'CROSS-TENANT INSERT ALLOWED' end);
+end $$;
+
+set role anon;
+reset request.jwt.claim.sub;
+
+do $$
+declare n integer;
+begin
+  select count(*) into n from public.analytics_daily;
+  insert into _results values ('rls: anonymous cannot read analytics', n = 0, format('%s rows', n));
+
+  select count(*) into n from public.ai_recommendations;
+  insert into _results values ('rls: anonymous cannot read recommendations', n = 0, format('%s rows', n));
+
+  select count(*) into n from public.post_metrics;
+  insert into _results values ('rls: anonymous cannot read post metrics', n = 0, format('%s rows', n));
+end $$;
+
+reset role;
+reset request.jwt.claim.sub;
+
 -- ---------------------------------------------------------------------------
 -- Report
 -- ---------------------------------------------------------------------------

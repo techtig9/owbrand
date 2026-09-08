@@ -302,6 +302,101 @@ function record(name, passed, detail = '') {
     record(`${cronPath}: GET is guarded too`, getProbe === 404 || getProbe === 503, `status ${getProbe}`);
   }
 
+  /* ---------------------------------------------------------------- *
+   * Analytics is behind the guard, and its cron trigger is protected
+   * ---------------------------------------------------------------- */
+  await page.goto(`${BASE}/dashboard/analytics`, { waitUntil: 'networkidle' });
+  {
+    const target = new URL(page.url());
+    record('middleware: /dashboard/analytics redirects anonymous to /login', target.pathname === '/login', page.url());
+    record(
+      'middleware: /dashboard/analytics deep link preserved',
+      target.searchParams.get('next') === '/dashboard/analytics',
+      target.searchParams.get('next') || 'absent',
+    );
+  }
+
+  for (const [label, headers] of [
+    ['no credentials', {}],
+    ['a wrong bearer token', { authorization: 'Bearer definitely-not-the-secret' }],
+  ]) {
+    const probe = await page.evaluate(
+      async ([p, h]) => {
+        const response = await fetch(p, { method: 'POST', headers: h });
+        return { status: response.status, body: (await response.text()).slice(0, 200) };
+      },
+      ['/api/cron/analytics', headers],
+    );
+    record(
+      `/api/cron/analytics: refuses ${label}`,
+      probe.status === 404 || probe.status === 503,
+      `status ${probe.status}`,
+    );
+  }
+
+  /* ---------------------------------------------------------------- *
+   * Analytics endpoints refuse an anonymous caller
+   *
+   * These return a tenant's commercial performance and, for the export, a
+   * whole CSV of it — so a leak here is a data breach, not a nuisance.
+   * ---------------------------------------------------------------- */
+  const brandProbe = '11111111-1111-4111-8111-111111111111';
+  for (const [method, path] of [
+    ['GET', `/api/analytics/overview?brandId=${brandProbe}`],
+    ['GET', `/api/analytics/export?brandId=${brandProbe}`],
+    ['GET', `/api/analytics/attribution?brandId=${brandProbe}`],
+    ['POST', '/api/analytics/attribution'],
+    ['POST', '/api/analytics/optimize'],
+    ['GET', '/api/analytics/recommendations'],
+    ['POST', '/api/analytics/recommendations'],
+  ]) {
+    const probe = await page.evaluate(
+      async ([m, p]) => {
+        const response = await fetch(p, {
+          method: m,
+          headers: m === 'GET' ? {} : { 'content-type': 'application/json' },
+          body: m === 'GET' ? undefined : '{}',
+        });
+        return {
+          status: response.status,
+          contentType: response.headers.get('content-type') || '',
+          body: (await response.text()).slice(0, 400),
+        };
+      },
+      [method, path],
+    );
+
+    record(
+      `${method} ${path}: refuses an anonymous caller`,
+      probe.status === 401 || probe.status === 403 || probe.status === 503,
+      `status ${probe.status}`,
+    );
+    record(
+      `${method} ${path}: leaks no metrics or stack`,
+      !/at\s+\/|node_modules|service_role|impressions|engagements|metric_date/.test(probe.body),
+      probe.body.slice(0, 120),
+    );
+  }
+
+  // The export must never answer with a CSV to an unauthenticated caller: a
+  // browser would download it, and content-disposition makes it a file.
+  {
+    const exportProbe = await page.evaluate(async (brand) => {
+      const response = await fetch(`/api/analytics/export?brandId=${brand}`);
+      return {
+        status: response.status,
+        contentType: response.headers.get('content-type') || '',
+        disposition: response.headers.get('content-disposition') || '',
+      };
+    }, brandProbe);
+
+    record(
+      'GET /api/analytics/export: never returns a CSV attachment to an anonymous caller',
+      !exportProbe.contentType.includes('text/csv') && !exportProbe.disposition.includes('attachment'),
+      `${exportProbe.status} ${exportProbe.contentType}`,
+    );
+  }
+
   /*
    * Positive control for the cron guard.
    *
