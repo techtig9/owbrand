@@ -4,6 +4,9 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { PLANS } from '@/lib/plans';
 import type { PlanId } from '@/types';
 
+// Reads the session cookie, so it can never be statically prerendered.
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 });

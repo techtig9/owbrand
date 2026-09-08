@@ -13,7 +13,7 @@ export default async function BillingPage() {
     return (
       <div className="space-y-6">
         <h1 className="font-display text-2xl font-bold text-ink">Billing</h1>
-        <div className="rounded-2xl border border-line bg-white p-6 text-sm text-ink-soft">
+        <div className="rounded-2xl border border-line bg-surface p-6 text-sm text-content-secondary">
           Admin accounts get full Business-tier access with unlimited credits — no billing required.
         </div>
       </div>
@@ -35,7 +35,7 @@ export default async function BillingPage() {
       <PaddleInit />
       <div>
         <h1 className="font-display text-2xl font-bold text-ink">Billing</h1>
-        <p className="mt-1 text-sm text-ink-soft">Manage your plan, credits, and payment history.</p>
+        <p className="mt-1 text-sm text-content-secondary">Manage your plan, credits, and payment history.</p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">

@@ -1,6 +1,17 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { StatCard } from '@/components/dashboard/shared';
 
+/**
+ * Admin pages are always rendered per request.
+ *
+ * They read live tenant data with the service-role client, so a statically
+ * generated copy would be both stale and a snapshot of other people's data
+ * sitting in the build output. This also fixes `next build`, which was failing
+ * to export every /admin route because prerendering constructs the Supabase
+ * client before any request context exists.
+ */
+export const dynamic = 'force-dynamic';
+
 export default async function AdminOverviewPage() {
   const supabase = supabaseAdmin();
 
@@ -31,12 +42,12 @@ export default async function AdminOverviewPage() {
         <StatCard label="Active paid subs" value={String(Object.values(activeByPlan).reduce((a, b) => a + b, 0))} />
       </div>
 
-      <div className="rounded-2xl border border-line bg-white p-6">
+      <div className="rounded-2xl border border-line bg-surface p-6">
         <h2 className="font-display text-sm font-semibold text-ink">Active subscriptions by plan</h2>
         <div className="mt-4 space-y-2">
           {['starter', 'pro', 'business'].map((plan) => (
             <div key={plan} className="flex items-center justify-between text-sm">
-              <span className="capitalize text-ink-soft">{plan}</span>
+              <span className="capitalize text-content-secondary">{plan}</span>
               <span className="font-medium text-ink">{activeByPlan[plan] ?? 0}</span>
             </div>
           ))}

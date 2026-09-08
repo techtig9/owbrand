@@ -37,7 +37,7 @@ export function SubscriptionActions({ userId }: { userId: string }) {
           if (e.target.value) run('upgrade', { plan: e.target.value });
           e.target.value = '';
         }}
-        className="rounded-full border border-line bg-white px-2 py-1 text-xs text-ink-soft"
+        className="rounded-full border border-line bg-surface px-2 py-1 text-xs text-content-secondary"
       >
         <option value="" disabled>
           Set plan…
@@ -51,7 +51,7 @@ export function SubscriptionActions({ userId }: { userId: string }) {
         type="button"
         disabled={loading}
         onClick={() => run('extend', { extendDays: 30 })}
-        className="rounded-full border border-line px-2.5 py-1 text-xs text-ink-soft hover:bg-canvas-alt"
+        className="rounded-full border border-line px-2.5 py-1 text-xs text-content-secondary hover:bg-surface-raised"
       >
         +30 days
       </button>
@@ -59,7 +59,7 @@ export function SubscriptionActions({ userId }: { userId: string }) {
         type="button"
         disabled={loading}
         onClick={() => run('cancel')}
-        className="rounded-full border border-blush-300 px-2.5 py-1 text-xs text-blush-700 hover:bg-blush-50"
+        className="rounded-full border border-primary px-2.5 py-1 text-xs text-primary hover:bg-primary-subtle"
       >
         Cancel
       </button>

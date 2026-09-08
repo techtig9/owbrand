@@ -68,19 +68,19 @@ export function PlanGrid({ currentPlan }: { currentPlan: PlanId }) {
           const plan = PLANS[id];
           const isCurrent = currentPlan === id;
           return (
-            <div key={id} className="rounded-2xl border border-line bg-white p-5">
+            <div key={id} className="rounded-2xl border border-line bg-surface p-5">
               <h3 className="font-display text-base font-semibold text-ink">{plan.label}</h3>
               <p className="mt-2 font-display text-2xl font-bold text-ink">
                 ${launchPrice(plan)}
-                <span className="text-xs font-normal text-ink-faint">/mo first month</span>
+                <span className="text-xs font-normal text-content-tertiary">/mo first month</span>
               </p>
-              <p className="mt-1 text-xs text-ink-faint">{plan.monthlyCredits.toLocaleString()} credits/mo</p>
+              <p className="mt-1 text-xs text-content-tertiary">{plan.monthlyCredits.toLocaleString()} credits/mo</p>
               <button
                 type="button"
                 disabled={isCurrent || loadingPlan === id}
                 onClick={() => handleUpgrade(id)}
                 className={`mt-4 w-full rounded-full px-4 py-2 text-xs font-semibold ${
-                  isCurrent ? 'cursor-default bg-canvas-alt text-ink-faint' : 'btn-accent'
+                  isCurrent ? 'cursor-default bg-surface-raised text-content-tertiary' : 'btn-accent'
                 }`}
               >
                 {isCurrent ? 'Current plan' : loadingPlan === id ? 'Loading…' : 'Upgrade'}
@@ -95,7 +95,7 @@ export function PlanGrid({ currentPlan }: { currentPlan: PlanId }) {
           type="button"
           onClick={handleCancel}
           disabled={cancelling}
-          className="text-xs font-medium text-ink-faint underline decoration-dotted hover:text-blush-700"
+          className="text-xs font-medium text-content-tertiary underline decoration-dotted hover:text-primary"
         >
           {cancelling ? 'Cancelling…' : 'Cancel my subscription'}
         </button>

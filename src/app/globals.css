@@ -1,86 +1,415 @@
+@import '../styles/tokens.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
+  /*
+   * Motion preference at the root, not just in a media query at the bottom:
+   * `scroll-behavior: smooth` hijacks every in-page jump, including the skip
+   * link, which is exactly the behaviour a reduced-motion user has asked not
+   * to have.
+   */
   html {
     scroll-behavior: smooth;
   }
 
-  body {
-    @apply bg-canvas text-ink font-body antialiased;
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
   }
 
-  h1, h2, h3, h4 {
-    @apply font-display text-ink;
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    @apply font-body antialiased;
+  }
+
+  /*
+   * Headings take the display face only on MARKETING surfaces. The
+   * application shell opts out via `.app-shell` below, because spec section 3
+   * asks for expressive marketing type and compact application type — one
+   * editorial face for both is what made the dashboard read as a lifestyle
+   * brand rather than a product.
+   */
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display;
+    color: var(--color-text);
+  }
+
+  .app-shell h1,
+  .app-shell h2,
+  .app-shell h3,
+  .app-shell h4,
+  .app-shell .font-display {
+    font-family: var(--font-body), ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: -0.011em;
   }
 
   ::selection {
-    @apply bg-blush-300 text-ink;
+    background-color: var(--color-primary-subtle);
+    color: var(--color-primary-on-subtle);
   }
 
+  /*
+   * Focus. WCAG 2.2 adds 2.4.11 Focus Not Obscured and 2.4.13 Focus
+   * Appearance: the indicator must be at least 2px thick and reach 3:1
+   * against adjacent colours. `--color-primary` is verified at >= 3:1 on both
+   * surfaces by scripts/check-contrast.mjs, and the outer ring gives the
+   * indicator its own contrast against the focused control itself.
+   */
   :focus-visible {
-    outline: 2px solid theme('colors.coral.500');
-    outline-offset: 3px;
-    border-radius: 4px;
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* Never remove the indicator for mouse users by removing it for everyone. */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  /* Tabular figures wherever numbers must line up in a column. */
+  .tabular-nums,
+  table td,
+  table th {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /*
+   * A large standalone number uses PROPORTIONAL figures: tabular gives every
+   * digit the width of a zero, which makes a value like 121 look loose at
+   * display sizes.
+   */
+  .stat-value {
+    font-variant-numeric: proportional-nums;
+    letter-spacing: -0.02em;
+  }
+
+  input,
+  textarea,
+  select {
+    color: var(--color-text);
+  }
+
+  ::placeholder {
+    color: var(--color-text-tertiary);
+    opacity: 1;
   }
 }
 
 @layer components {
-  /* Glass-panel card used across landing + dashboard, per the brand direction */
+  /*
+   * Glass. Spec section 15 restricts it to floating command surfaces,
+   * overlays and AI contextual panels, with accessible solid fallbacks — so
+   * the fallback is the DEFAULT here and the blur is added only where it is
+   * supported. A card that relies on backdrop-filter for its background is
+   * unreadable where the filter is unsupported or disabled.
+   */
   .glass-panel {
-    @apply relative rounded-2xl border border-white/60 bg-white/70 shadow-glass backdrop-blur-xl;
+    position: relative;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--color-border);
+    background-color: var(--color-surface);
+    box-shadow: var(--shadow-sm);
+  }
+
+  @supports (backdrop-filter: blur(1px)) {
+    .glass-floating {
+      background-color: var(--glass-bg);
+      border-color: var(--glass-border);
+      backdrop-filter: blur(var(--glass-blur));
+      box-shadow: var(--shadow-lg);
+    }
+  }
+
+  .glass-floating {
+    background-color: var(--color-surface-overlay);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+  }
+
+  /* The standard content card. */
+  .card {
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--color-border);
+    background-color: var(--color-surface);
+  }
+
+  .card-interactive {
+    @apply card;
+    transition:
+      border-color var(--duration-micro) var(--ease-out),
+      box-shadow var(--duration-micro) var(--ease-out),
+      transform var(--duration-micro) var(--ease-out);
+  }
+
+  .card-interactive:hover {
+    border-color: var(--color-border-strong);
+    box-shadow: var(--shadow-md);
   }
 
   .section-eyebrow {
-    @apply inline-flex items-center gap-2 rounded-full border border-line bg-canvas-card px-3 py-1 text-xs font-medium uppercase tracking-[0.14em] text-ink-soft;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: var(--radius-full);
+    border: 1px solid var(--color-border);
+    background-color: var(--color-surface);
+    padding: 0.25rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--color-text-secondary);
+  }
+
+  /*
+   * Buttons.
+   *
+   * The previous set animated `translateY` on hover, which moves the pointer
+   * target out from under the cursor and is disorienting at speed. Hover now
+   * changes colour and elevation only; the press state is the transform, where
+   * a 1px shift reads as physical rather than as drift.
+   */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: var(--radius-md);
+    padding: 0.625rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+    transition:
+      background-color var(--duration-micro) var(--ease-out),
+      border-color var(--duration-micro) var(--ease-out),
+      color var(--duration-micro) var(--ease-out),
+      box-shadow var(--duration-micro) var(--ease-out);
+  }
+
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn:active:not(:disabled) {
+    transform: translateY(1px);
   }
 
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-full bg-ink px-6 py-3 text-sm font-semibold text-canvas shadow-soft transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-pop active:translate-y-0;
+    @apply btn;
+    background-color: var(--color-primary);
+    color: var(--color-primary-text);
+    box-shadow: var(--shadow-xs);
   }
 
+  .btn-primary:hover:not(:disabled) {
+    background-color: var(--color-primary-hover);
+    box-shadow: var(--shadow-sm);
+  }
+
+  /*
+   * `btn-accent` was the coral CTA. Under the indigo system the primary IS the
+   * accent, so this is now an alias — kept because roughly 20 screens use it,
+   * and a second competing accent would undercut the primary.
+   */
   .btn-accent {
-    @apply inline-flex items-center justify-center gap-2 rounded-full bg-coral-500 px-6 py-3 text-sm font-semibold text-white shadow-pop transition-transform duration-200 hover:-translate-y-0.5 hover:bg-coral-600 active:translate-y-0;
+    @apply btn-primary;
   }
 
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 rounded-full border border-line bg-transparent px-6 py-3 text-sm font-semibold text-ink transition-colors duration-200 hover:bg-canvas-alt;
+    @apply btn;
+    border: 1px solid var(--color-border);
+    background-color: var(--color-surface);
+    color: var(--color-text);
+  }
+
+  .btn-ghost:hover:not(:disabled) {
+    background-color: var(--color-surface-raised);
+    border-color: var(--color-border-strong);
+  }
+
+  .btn-danger {
+    @apply btn;
+    border: 1px solid var(--color-danger);
+    background-color: transparent;
+    color: var(--color-danger);
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background-color: var(--color-danger-subtle);
+  }
+
+  /* Form controls. `border-strong` clears 3:1, so an input is discernible
+     without relying on its label alone (WCAG 1.4.11 Non-text Contrast). */
+  .input {
+    width: 100%;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border-strong);
+    background-color: var(--color-surface);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    color: var(--color-text);
+    transition:
+      border-color var(--duration-micro) var(--ease-out),
+      box-shadow var(--duration-micro) var(--ease-out);
+  }
+
+  .input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: var(--shadow-focus);
+  }
+
+  .field-label {
+    display: block;
+    margin-bottom: 0.375rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+  }
+
+  /* Badges. Every semantic badge pairs its colour with a word, so state is
+     never carried by colour alone (WCAG 1.4.1 Use of Colour). */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    border-radius: var(--radius-full);
+    padding: 0.125rem 0.5rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .badge-neutral {
+    @apply badge;
+    background-color: var(--color-surface-raised);
+    color: var(--color-text-secondary);
+  }
+
+  .badge-success {
+    @apply badge;
+    background-color: var(--color-success-subtle);
+    color: var(--color-success);
+  }
+
+  .badge-warning {
+    @apply badge;
+    background-color: var(--color-warning-subtle);
+    color: var(--color-warning);
+  }
+
+  .badge-danger {
+    @apply badge;
+    background-color: var(--color-danger-subtle);
+    color: var(--color-danger);
+  }
+
+  .badge-info {
+    @apply badge;
+    background-color: var(--color-info-subtle);
+    color: var(--color-info);
+  }
+
+  .badge-ai {
+    @apply badge;
+    background-color: var(--color-ai-subtle);
+    color: var(--color-ai);
   }
 
   .reveal {
     @apply animate-reveal-up;
   }
 
-  /* Card entrance per OWBRAND_MASTER_CLAUDE_BUILD_PROMPT §7: opacity 0→1,
-     scale ~0.98→1, restrained stagger via inline `animation-delay`. */
   .reveal-scale {
-    animation: reveal-scale 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation: scale-in var(--duration-standard) var(--ease-out) both;
   }
 
-  @keyframes reveal-scale {
+  @keyframes scale-in {
     from {
       opacity: 0;
-      transform: scale(0.98) translateY(8px);
+      transform: scale(0.97);
     }
     to {
       opacity: 1;
-      transform: scale(1) translateY(0);
+      transform: scale(1);
     }
   }
 
-  /* Trusted-by / partner logo strip: neutral until hover, per the reference
-     agency-template pattern — never louder than the section's own accent. */
+  /*
+   * List stagger, spec section 14. Applied by index through a custom property
+   * rather than a class per position, and capped: a stagger that keeps
+   * accumulating makes the twentieth row arrive a second late.
+   */
+  .stagger-item {
+    animation: slide-up var(--duration-standard) var(--ease-out) both;
+    animation-delay: calc(min(var(--stagger-index, 0), 8) * 35ms);
+  }
+
+  /*
+   * The partner wordmark strip.
+   *
+   * Was `opacity-50` on text, which axe caught at 3.26:1 — opacity applied to
+   * text lowers its effective contrast and there is no way to opt a wordmark
+   * out of being read. Recessive now comes from a token colour that clears AA
+   * at full opacity, with the grayscale filter kept for actual logo images.
+   */
   .trust-logo {
-    @apply grayscale opacity-50 transition duration-200 hover:grayscale-0 hover:opacity-100;
+    color: var(--color-text-tertiary);
+    filter: grayscale(1);
+    transition:
+      color var(--duration-standard) var(--ease-out),
+      filter var(--duration-standard) var(--ease-out);
+  }
+
+  .trust-logo:hover {
+    color: var(--color-text);
+    filter: grayscale(0);
+  }
+
+  /* Skeleton, spec section 14. Opacity only — animating a gradient's position
+     repaints on every frame. */
+  .skeleton {
+    background-color: var(--color-surface-raised);
+    border-radius: var(--radius-md);
+    animation: skeleton-pulse 1.6s var(--ease-in-out) infinite;
+  }
+
+  @keyframes skeleton-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.55;
+    }
   }
 }
 
+/*
+ * Reduced motion.
+ *
+ * Kept as a near-zero duration rather than `animation: none`, because
+ * `both`-filled entrance animations left un-run would leave their elements at
+ * opacity 0 — a reduced-motion user would see an empty page. This runs them
+ * instantly instead.
+ */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
-    scroll-behavior: auto !important;
   }
 }

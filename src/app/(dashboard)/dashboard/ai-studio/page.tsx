@@ -1,4 +1,85 @@
-'use client';
-import { useEffect, useState } from 'react'; import { Sparkles, Loader2, Copy, Film, Camera, Megaphone } from 'lucide-react'; import { toast } from 'sonner';
-const modes=[['copy','Copy',Copy],['reel','Reel script',Film],['photo','Product photo brief',Camera],['ad','Ad concept',Megaphone]] as const;
-export default function AIStudio(){const [brands,setBrands]=useState<any[]>([]),[brandId,setBrandId]=useState(''),[mode,setMode]=useState('copy'),[instruction,setInstruction]=useState(''),[loading,setLoading]=useState(false),[result,setResult]=useState<any>(null);useEffect(()=>{fetch('/api/brands').then(r=>r.json()).then(d=>{setBrands(d.brands||[]);if(d.brands?.[0])setBrandId(d.brands[0].id)})},[]);async function generate(){if(!brandId||!instruction.trim())return toast.error('Select a brand and describe the creative.');setLoading(true);try{const r=await fetch('/api/ai/generate-content',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({brandId,type:mode==='reel'?'reel':mode==='copy'?'content':'post',instruction:`Mode: ${mode}. ${instruction}`})});const d=await r.json();if(!r.ok)throw new Error(d.error);setResult(d.spec||d.asset);toast.success('Creative brief generated.')}catch(e){toast.error(e instanceof Error?e.message:'Generation failed.')}finally{setLoading(false)}}return <div className="mx-auto max-w-6xl space-y-7"><div><p className="section-eyebrow">Creative engine</p><h1 className="mt-3 font-display text-3xl font-bold">AI Studio</h1><p className="mt-1 text-sm text-ink-soft">One creative workspace for copy, reels, product-shot direction and ads. Brand rules are injected into every generation.</p></div><div className="grid gap-5 lg:grid-cols-[280px_1fr]"><aside className="glass-panel p-4"><p className="px-2 text-xs font-semibold uppercase tracking-wide text-ink-faint">Create</p><div className="mt-3 space-y-1">{modes.map(([id,label,Icon])=><button key={id} onClick={()=>setMode(id)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm ${mode===id?'bg-ink text-canvas':'text-ink-soft hover:bg-canvas-alt'}`}><Icon className="h-4 w-4"/>{label}</button>)}</div></aside><section className="glass-panel p-6"><div className="flex flex-wrap gap-3"><select value={brandId} onChange={e=>setBrandId(e.target.value)} className="rounded-xl border border-line bg-white px-4 py-2.5 text-sm">{brands.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select><span className="rounded-full bg-canvas-alt px-3 py-2 text-xs">{mode==='photo'?'Image-generation ready brief':mode==='reel'?'Video storyboard + script':'Brand-consistent copy'}</span></div><textarea value={instruction} onChange={e=>setInstruction(e.target.value)} rows={8} className="mt-5 w-full rounded-xl border border-line bg-white px-4 py-3 text-sm" placeholder="Example: Create a 15-second launch reel for our new vitamin C serum. Focus on premium feel, benefits, a strong first-second hook and a clear CTA."/><button onClick={generate} disabled={loading} className="btn-accent mt-4 w-full">{loading?<Loader2 className="h-4 w-4 animate-spin"/>:<Sparkles className="h-4 w-4"/>}{loading?'Creating...':'Generate creative'}</button>{result&&<div className="mt-6 rounded-2xl border border-line bg-canvas-alt p-5"><p className="text-xs font-semibold uppercase text-ink-faint">Output</p><pre className="mt-3 whitespace-pre-wrap text-sm leading-6 text-ink-soft">{typeof result==='string'?result:JSON.stringify(result,null,2)}</pre></div>}</section></div></div>}
+import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { getCurrentUser } from '@/lib/supabase/server';
+import { supabaseAdmin } from '@/lib/supabase/admin';
+import { accessibleBrandIds } from '@/lib/auth/guards';
+import { isConfigured } from '@/lib/env';
+import { CreativeStudio } from '@/components/creative/CreativeStudio';
+import { EmptyState } from '@/components/dashboard/shared';
+
+export const dynamic = 'force-dynamic';
+
+/**
+ * Creative Studio.
+ *
+ * Brands are resolved server-side from the caller's accessible set rather than
+ * fetched by the client from `/api/brands` — the client can only ever offer a
+ * brand the server already confirmed.
+ *
+ * Provider capability is also resolved here. `isConfigured` reads server-only
+ * env vars, so this is the only place that can answer "can this server
+ * actually generate an image" without leaking the credentials themselves.
+ */
+export default async function AIStudioPage() {
+  const user = await getCurrentUser();
+  if (!user) redirect('/login');
+
+  const db = supabaseAdmin();
+  const accessible = await accessibleBrandIds(user.id, db);
+
+  if (accessible.length === 0) {
+    return (
+      <div className="mx-auto max-w-5xl space-y-6">
+        <Header />
+        <EmptyState
+          title="No brand yet"
+          body="The studio writes in your brand's voice, so it needs a Brand Brain first."
+          action={
+            <Link href="/dashboard/ai-generator" className="btn-primary">
+              Build my brand
+            </Link>
+          }
+        />
+      </div>
+    );
+  }
+
+  const { data: brands } = await db
+    .from('brands')
+    .select('id, name')
+    .in('id', accessible)
+    .order('created_at', { ascending: false });
+
+  const options = (brands ?? []).map((brand: { id: string; name: string }) => ({
+    id: brand.id,
+    name: brand.name,
+  }));
+
+  return (
+    <div className="mx-auto max-w-[1600px] space-y-6">
+      <Header />
+      <CreativeStudio
+        brands={options}
+        initialBrandId={options[0]?.id ?? accessible[0]}
+        capabilities={{
+          ai: isConfigured.ai(),
+          image: isConfigured.imageProvider(),
+          video: isConfigured.videoProvider(),
+        }}
+      />
+    </div>
+  );
+}
+
+function Header() {
+  return (
+    <div>
+      <p className="section-eyebrow">Creative engine</p>
+      <h1 className="mt-3 font-display text-3xl font-bold">Creative Studio</h1>
+      <p className="mt-1 max-w-2xl text-sm text-content-secondary">
+        Copy, reel scripts, product photography and short-form video — each generated against your Brand Brain and
+        your approved product facts.
+      </p>
+    </div>
+  );
+}

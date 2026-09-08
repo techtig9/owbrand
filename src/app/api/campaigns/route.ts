@@ -1,4 +1,70 @@
-import { NextResponse } from 'next/server'; import { z } from 'zod'; import { getCurrentUser } from '@/lib/supabase/server'; import { supabaseAdmin } from '@/lib/supabase/admin';
-const Body=z.object({brandId:z.string().uuid(),name:z.string().min(1).max(160),objective:z.string().max(50)});
-export async function GET(req:Request){const u=await getCurrentUser();if(!u)return NextResponse.json({error:'Unauthorized'},{status:401});const id=new URL(req.url).searchParams.get('brandId');const {data}=await supabaseAdmin().from('campaigns').select('*').eq('brand_id',id||'').order('created_at',{ascending:false});return NextResponse.json({campaigns:data||[]})}
-export async function POST(req:Request){const u=await getCurrentUser();if(!u)return NextResponse.json({error:'Unauthorized'},{status:401});const p=Body.safeParse(await req.json());if(!p.success)return NextResponse.json({error:'Invalid campaign.'},{status:400});const db=supabaseAdmin();const {data:brand}=await db.from('brands').select('id').eq('id',p.data.brandId).eq('user_id',u.id).maybeSingle();if(!brand)return NextResponse.json({error:'Brand not found.'},{status:404});const {data,error}=await db.from('campaigns').insert({brand_id:p.data.brandId,name:p.data.name,objective:p.data.objective,status:'draft'}).select().single();if(error)return NextResponse.json({error:error.message},{status:500});return NextResponse.json({campaign:data})}
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { routeHandler } from '@/lib/api/errors';
+import { parseJsonBody, parseSearchParams, boundedText, uuidSchema } from '@/lib/api/validate';
+import { requireUser, assertBrandAccess } from '@/lib/auth/guards';
+import { enforceRateLimit } from '@/lib/security/rate-limit';
+import { supabaseAdmin } from '@/lib/supabase/admin';
+
+// Reads the session cookie, so it can never be statically prerendered.
+export const dynamic = 'force-dynamic';
+
+/**
+ * SECURITY FIX (Phase 1)
+ * The previous GET took brandId straight from the query string and ran
+ *   supabaseAdmin().from('campaigns').select('*').eq('brand_id', id || '')
+ * with no ownership check on a service-role (RLS-bypassing) client. Any
+ * authenticated user could read any tenant's campaigns by supplying their
+ * brand id. assertBrandAccess now gates every path.
+ */
+
+const ListQuery = z.object({ brandId: uuidSchema });
+
+export const GET = routeHandler('/api/campaigns', async (request: Request) => {
+  const user = await requireUser();
+  await enforceRateLimit('standard', user.id);
+
+  const { brandId } = parseSearchParams(request, ListQuery);
+  const db = supabaseAdmin();
+
+  await assertBrandAccess(user.id, brandId, { db });
+
+  const { data, error } = await db
+    .from('campaigns')
+    .select('id,brand_id,name,objective,status,budget,start_at,end_at,created_at')
+    .eq('brand_id', brandId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return NextResponse.json({ campaigns: data ?? [] });
+});
+
+const CreateCampaign = z.object({
+  brandId: uuidSchema,
+  name: boundedText(1, 160),
+  objective: z.enum(['awareness', 'traffic', 'leads', 'sales']).default('awareness'),
+});
+
+export const POST = routeHandler('/api/campaigns', async (request: Request) => {
+  const user = await requireUser();
+  await enforceRateLimit('standard', user.id);
+
+  const body = await parseJsonBody(request, CreateCampaign);
+  const db = supabaseAdmin();
+
+  await assertBrandAccess(user.id, body.brandId, { db });
+
+  const { data, error } = await db
+    .from('campaigns')
+    .insert({
+      brand_id: body.brandId,
+      name: body.name,
+      objective: body.objective,
+      status: 'draft',
+    })
+    .select('id,brand_id,name,objective,status,created_at')
+    .single();
+
+  if (error) throw error;
+  return NextResponse.json({ campaign: data }, { status: 201 });
+});

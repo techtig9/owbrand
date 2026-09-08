@@ -7,17 +7,17 @@ export function AIDemo() {
         <div className="mx-auto max-w-xl text-center reveal">
           <span className="section-eyebrow mx-auto">See it work</span>
           <h2 className="mt-4 text-4xl font-bold tracking-tight sm:text-5xl">From a sentence to a site.</h2>
-          <p className="mt-4 text-ink-soft">
+          <p className="mt-4 text-content-secondary">
             Type or speak a description. owbrand asks a few quick follow-ups, then builds.
           </p>
         </div>
 
         <div className="glass-panel reveal mx-auto mt-12 max-w-3xl overflow-hidden">
           <div className="flex items-center gap-3 border-b border-line/70 px-5 py-4">
-            <div className="flex flex-1 items-center gap-3 rounded-full border border-line bg-white px-4 py-2.5 text-sm text-ink-soft">
+            <div className="flex flex-1 items-center gap-3 rounded-full border border-line bg-surface px-4 py-2.5 text-sm text-content-secondary">
               <span>&ldquo;Build a warm, editorial portfolio site for a ceramics studio&rdquo;</span>
             </div>
-            <button type="button" className="rounded-full bg-canvas-alt p-2.5 text-ink-soft" aria-label="Use voice input">
+            <button type="button" className="rounded-full bg-surface-raised p-2.5 text-content-secondary" aria-label="Use voice input">
               <Mic className="h-4 w-4" />
             </button>
             <button type="button" className="btn-accent px-4 py-2.5 text-xs">
@@ -35,7 +35,7 @@ export function AIDemo() {
                 <div
                   key={label}
                   className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium ${
-                    active ? 'bg-ink text-canvas' : 'text-ink-soft'
+                    active ? 'bg-ink text-canvas' : 'text-content-secondary'
                   }`}
                 >
                   <Icon className="h-3.5 w-3.5" /> {label}
@@ -43,21 +43,21 @@ export function AIDemo() {
               ))}
             </div>
 
-            <div className="bg-canvas-alt p-6">
-              <div className="mx-auto max-w-md rounded-xl border border-line bg-white p-5 shadow-soft">
+            <div className="bg-surface-raised p-6">
+              <div className="mx-auto max-w-md rounded-xl border border-line bg-surface p-5 shadow-soft">
                 <div className="mb-4 flex items-center justify-between">
                   <div className="h-3 w-16 rounded-full bg-ink/15" />
                   <div className="flex gap-1.5">
-                    <div className="h-2 w-2 rounded-full bg-blush-300" />
-                    <div className="h-2 w-2 rounded-full bg-mint-300" />
-                    <div className="h-2 w-2 rounded-full bg-lavender-400" />
+                    <div className="h-2 w-2 rounded-full bg-primary-subtle" />
+                    <div className="h-2 w-2 rounded-full bg-success" />
+                    <div className="h-2 w-2 rounded-full bg-ai-subtle" />
                   </div>
                 </div>
-                <div className="mb-3 h-24 rounded-lg bg-blush-50" />
+                <div className="mb-3 h-24 rounded-lg bg-primary-subtle" />
                 <div className="mb-2 h-2.5 w-3/4 rounded-full bg-ink/10" />
                 <div className="h-2.5 w-1/2 rounded-full bg-ink/10" />
               </div>
-              <p className="mt-3 text-center text-xs text-ink-faint">Live preview updates as sections generate</p>
+              <p className="mt-3 text-center text-xs text-content-tertiary">Live preview updates as sections generate</p>
             </div>
           </div>
         </div>
