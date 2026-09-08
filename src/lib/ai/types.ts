@@ -188,3 +188,13 @@ export interface AIStructuredResult<T> {
 
 /** Convenience alias for the schema a caller supplies. */
 export type AISchema<T> = ZodType<T>;
+
+/**
+ * Trims a long input (a brand description, imported page content) to a
+ * token-safe size. Moved here from the retired lib/gemini.ts, which was the
+ * only reason two dead prompt files still imported it.
+ */
+export function trimForPrompt(input: string, maxChars = 6000): string {
+  if (input.length <= maxChars) return input;
+  return `${input.slice(0, maxChars)}\n…(truncated)`;
+}
