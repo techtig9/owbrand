@@ -6,7 +6,7 @@ import {
   isProtectedPath,
   unconfiguredDeploymentAction,
 } from '@/lib/security/deployment-guard';
-import { isConfigured } from '@/lib/env';
+import { isConfigured, publicEnv } from '@/lib/env';
 
 /**
  * Session refresh, route protection, and per-request CSP.
@@ -50,41 +50,40 @@ export async function middleware(request: NextRequest) {
     return applyHeaders(response, csp);
   }
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return request.cookies.get(name)?.value;
-        },
-        set(name: string, value: string, options: CookieOptions) {
-          // Recreating the response preserves the refreshed auth cookie.
-          response = NextResponse.next({ request: { headers: requestHeaders } });
-          response.cookies.set({
-            name,
-            value,
-            ...options,
-            httpOnly: true,
-            sameSite: 'lax',
-            secure: process.env.NODE_ENV === 'production',
-          });
-        },
-        remove(name: string, options: CookieOptions) {
-          response = NextResponse.next({ request: { headers: requestHeaders } });
-          response.cookies.set({
-            name,
-            value: '',
-            ...options,
-            maxAge: 0,
-            httpOnly: true,
-            sameSite: 'lax',
-            secure: process.env.NODE_ENV === 'production',
-          });
-        },
+  // Safe to read unconditionally: the guard above returned when either value
+  // was absent. Through publicEnv rather than `process.env.X!` so this file
+  // has no second, unvalidated path to the same configuration.
+  const supabase = createServerClient(publicEnv.supabaseUrl, publicEnv.supabaseAnonKey, {
+    cookies: {
+      get(name: string) {
+        return request.cookies.get(name)?.value;
       },
-    }
-  );
+      set(name: string, value: string, options: CookieOptions) {
+        // Recreating the response preserves the refreshed auth cookie.
+        response = NextResponse.next({ request: { headers: requestHeaders } });
+        response.cookies.set({
+          name,
+          value,
+          ...options,
+          httpOnly: true,
+          sameSite: 'lax',
+          secure: process.env.NODE_ENV === 'production',
+        });
+      },
+      remove(name: string, options: CookieOptions) {
+        response = NextResponse.next({ request: { headers: requestHeaders } });
+        response.cookies.set({
+          name,
+          value: '',
+          ...options,
+          maxAge: 0,
+          httpOnly: true,
+          sameSite: 'lax',
+          secure: process.env.NODE_ENV === 'production',
+        });
+      },
+    },
+  });
 
   const needsAuth = isProtectedPath(path);
   const isAuthPage = isAuthOnlyPath(path);
