@@ -350,6 +350,106 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
+-- Phase 2: AI / Brand Brain / Product Brain tables
+-- ---------------------------------------------------------------------------
+reset role;
+reset request.jwt.claim.sub;
+
+insert into public.brand_brain_versions (brand_id, version, brain, source)
+values ('aaaaaaaa-0000-0000-0000-000000000001', 1,
+        '{"name":"Alice Brand","tagline":"t","positioning":{"usp":"u"}}'::jsonb, 'ai_generated'),
+       ('bbbbbbbb-0000-0000-0000-000000000001', 1,
+        '{"name":"Bob Brand","tagline":"t","positioning":{"usp":"u"}}'::jsonb, 'ai_generated');
+
+insert into public.product_facts (product_id, fact, category, verified)
+values ('aaaaaaaa-0000-0000-0000-0000000000a1', 'Alice fact', 'general', true),
+       ('bbbbbbbb-0000-0000-0000-0000000000b1', 'Bob fact', 'general', true);
+
+insert into public.site_pages (id, brand_id, slug, title, is_home)
+values ('aaaaaaaa-0000-0000-0000-0000000000d1'::uuid, 'aaaaaaaa-0000-0000-0000-000000000001', 'home', 'Alice Home', true),
+       ('bbbbbbbb-0000-0000-0000-0000000000d1'::uuid, 'bbbbbbbb-0000-0000-0000-000000000001', 'home', 'Bob Home', true);
+
+insert into public.site_sections (page_id, kind, sort_order)
+values ('aaaaaaaa-0000-0000-0000-0000000000d1'::uuid, 'hero', 0),
+       ('bbbbbbbb-0000-0000-0000-0000000000d1'::uuid, 'hero', 0);
+
+select pg_temp.assert_eq(
+  'schema: brand_brain_versions enforces unique (brand_id, version)',
+  (select count(*)::int from pg_indexes
+    where schemaname='public' and tablename='brand_brain_versions'
+      and indexdef like '%UNIQUE%brand_id%version%'), 1);
+
+select pg_temp.assert_eq(
+  'schema: asset_versions requires exactly one parent',
+  (select count(*)::int from pg_constraint where conname = 'asset_versions_one_parent'), 1);
+
+set role authenticated;
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+select pg_temp.assert_eq('rls: Alice sees only her own Brand Brain versions',
+  (select count(*)::int from public.brand_brain_versions), 1);
+select pg_temp.assert_eq('rls: Alice cannot read Bob''s Brand Brain',
+  (select count(*)::int from public.brand_brain_versions
+    where brand_id = 'bbbbbbbb-0000-0000-0000-000000000001'), 0);
+select pg_temp.assert_eq('rls: Alice sees only her own product facts',
+  (select count(*)::int from public.product_facts), 1);
+select pg_temp.assert_eq('rls: Alice cannot read Bob''s product facts',
+  (select count(*)::int from public.product_facts where fact = 'Bob fact'), 0);
+select pg_temp.assert_eq('rls: Alice sees only her own site pages',
+  (select count(*)::int from public.site_pages), 1);
+select pg_temp.assert_eq('rls: Alice cannot read Bob''s site sections',
+  (select count(*)::int from public.site_sections), 1);
+select pg_temp.assert_eq('rls: Alice sees only her own credit ledger',
+  (select count(*)::int from public.credit_ledger where user_id <> auth.uid()), 0);
+
+-- A blocked write must be refused, not silently ignored.
+do $$
+declare ok boolean := false;
+begin
+  begin
+    insert into public.brand_brain_versions (brand_id, version, brain)
+    values ('bbbbbbbb-0000-0000-0000-000000000001', 99, '{}'::jsonb);
+  exception when insufficient_privilege or check_violation then ok := true;
+  end;
+  insert into _results values ('rls: Alice cannot write a Brand Brain into Bob''s brand', ok,
+    case when ok then 'blocked' else 'INSERT SUCCEEDED — tenant isolation broken' end);
+end $$;
+
+reset role;
+reset request.jwt.claim.sub;
+
+-- reserve_credits must be atomic and must leave a ledger entry.
+do $$
+declare balance integer; entries integer; ok boolean := false;
+begin
+  update public.subscriptions set credits_remaining = 200
+   where user_id = '11111111-1111-1111-1111-111111111111';
+
+  select public.reserve_credits('11111111-1111-1111-1111-111111111111', 50, 'generate_content') into balance;
+  insert into _results values ('credits: reserve_credits deducts', balance = 150, format('balance %s', balance));
+
+  select count(*) into entries from public.credit_ledger
+   where user_id = '11111111-1111-1111-1111-111111111111' and entry_type = 'reserve';
+  insert into _results values ('credits: reserve writes a ledger entry', entries = 1, format('%s entries', entries));
+
+  begin
+    perform public.reserve_credits('11111111-1111-1111-1111-111111111111', 100000, 'x');
+  exception when others then ok := true;
+  end;
+  insert into _results values ('credits: reserve cannot overdraw', ok,
+    case when ok then 'raised insufficient_credits' else 'OVERDRAW ALLOWED' end);
+
+  select credits_remaining into balance from public.subscriptions
+   where user_id = '11111111-1111-1111-1111-111111111111';
+  insert into _results values ('credits: failed reserve wrote no ledger entry', balance = 150, format('balance %s', balance));
+
+  perform public.refund_credits_logged('11111111-1111-1111-1111-111111111111', 50, 'generation failed');
+  select count(*) into entries from public.credit_ledger
+   where user_id = '11111111-1111-1111-1111-111111111111' and entry_type = 'refund';
+  insert into _results values ('credits: refund writes a ledger entry', entries = 1, format('%s entries', entries));
+end $$;
+
+-- ---------------------------------------------------------------------------
 -- Report
 -- ---------------------------------------------------------------------------
 \set QUIET off
