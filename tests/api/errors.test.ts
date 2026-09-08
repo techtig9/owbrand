@@ -135,3 +135,61 @@ describe('routeHandler', () => {
     await expect(handler()).resolves.toBeInstanceOf(Response);
   });
 });
+
+/**
+ * Added after probing a live deployment with no Supabase credentials:
+ * requireUser() builds a Supabase client, publicEnv throws MissingEnvError, and
+ * every gated route answered 500 "Something went wrong on our end. Please try
+ * again." A caller retries that forever and an operator learns nothing.
+ */
+describe('a missing environment variable', () => {
+  function missingEnv(name = 'NEXT_PUBLIC_SUPABASE_URL') {
+    const error = new Error(`Missing required environment variable ${name}.`);
+    error.name = 'MissingEnvError';
+    return error;
+  }
+
+  it('is a 503 not_configured, not a 500', async () => {
+    const response = toErrorResponse(missingEnv());
+    expect(response.status).toBe(503);
+
+    const body = await response.json();
+    expect(body.code).toBe('not_configured');
+    expect(body.error).not.toBe('Something went wrong on our end. Please try again.');
+  });
+
+  it('does not name the variable in the response body', async () => {
+    const body = await toErrorResponse(missingEnv('SUPABASE_SERVICE_ROLE_KEY')).json();
+
+    // The operator gets the name from the log line; an anonymous caller has no
+    // business enumerating a server's configuration.
+    expect(JSON.stringify(body)).not.toContain('SUPABASE_SERVICE_ROLE_KEY');
+    expect(JSON.stringify(body)).not.toContain('environment variable');
+  });
+
+  it('still surfaces through routeHandler', async () => {
+    const handler = routeHandler('/api/test', async () => {
+      throw missingEnv();
+    });
+
+    const response = await handler();
+    expect(response.status).toBe(503);
+  });
+
+  /*
+   * The guard requires BOTH the error name and the message prefix. Without
+   * this, any error whose text mentioned an environment variable would be
+   * silently downgraded from a 500 to a 503 — hiding a real fault behind a
+   * "not configured" that an operator would chase in the wrong place.
+   */
+  it('does not swallow an unrelated error that merely mentions env vars', async () => {
+    const decoy = new Error('Missing required environment variable NEXT_PUBLIC_SUPABASE_URL.');
+    // Same message, ordinary Error name.
+    expect(decoy.name).toBe('Error');
+    expect(toErrorResponse(decoy).status).toBe(500);
+
+    const namedButDifferent = new Error('connection refused');
+    namedButDifferent.name = 'MissingEnvError';
+    expect(toErrorResponse(namedButDifferent).status).toBe(500);
+  });
+});

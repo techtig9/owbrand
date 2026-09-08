@@ -141,11 +141,55 @@ export function toErrorResponse(error: unknown, context: LogContext = {}): NextR
     );
   }
 
+  /*
+   * A missing environment variable is a DEPLOYMENT fault, not a request fault.
+   *
+   * Found by probing a live deployment that had no Supabase credentials:
+   * requireUser() builds a Supabase client, publicEnv throws MissingEnvError,
+   * and this function classified it as an unexpected error — so every gated
+   * route answered "Something went wrong on our end. Please try again." with a
+   * 500. A caller retries that forever; an operator learns nothing from it.
+   *
+   * 503 with `not_configured` says the deployment is incomplete, and a 503 is
+   * also the correct signal for a health check and a load balancer.
+   *
+   * The response does NOT name the variable. The distinction is worth keeping:
+   * the operator needs the name and gets it from the log line below, while an
+   * anonymous caller has no business enumerating a server's configuration.
+   */
+  if (isMissingEnvError(error)) {
+    logger.error('api_error:not_configured', error, { ...context, requestId });
+    return NextResponse.json<ApiErrorBody>(
+      {
+        error: 'This deployment is not fully configured yet. Please try again later.',
+        code: 'not_configured',
+        requestId,
+      },
+      { status: STATUS_BY_CODE.not_configured }
+    );
+  }
+
   logger.error('api_error:unhandled', error, { ...context, requestId });
 
   return NextResponse.json<ApiErrorBody>(
     { error: DEFAULT_MESSAGE.internal, code: 'internal', requestId },
     { status: 500 }
+  );
+}
+
+/**
+ * Recognises lib/env.ts's MissingEnvError.
+ *
+ * Matched by name and message rather than by `instanceof`: the class is private
+ * to lib/env, this module is imported from the edge runtime as well as node,
+ * and an error can cross a bundle boundary where the constructor identity no
+ * longer matches. Both conditions must hold, so an unrelated error whose text
+ * happens to mention an environment variable is not swallowed as a 503.
+ */
+function isMissingEnvError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return (
+    error.name === 'MissingEnvError' && error.message.startsWith('Missing required environment variable')
   );
 }
 
