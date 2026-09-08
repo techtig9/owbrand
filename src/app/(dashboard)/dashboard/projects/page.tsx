@@ -18,7 +18,7 @@ export default async function ProjectsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-display text-2xl font-bold text-ink">Projects</h1>
-          <p className="mt-1 text-sm text-ink-soft">Every brand you&apos;ve generated with owbrand.</p>
+          <p className="mt-1 text-sm text-content-secondary">Every brand you&apos;ve generated with owbrand.</p>
         </div>
         <Link href="/dashboard/ai-generator" className="btn-accent">
           <Wand2 className="h-4 w-4" /> New project
@@ -41,11 +41,11 @@ export default async function ProjectsPage() {
             <Link
               key={brand.id}
               href={`/dashboard/brand-kit?brand=${brand.id}`}
-              className="rounded-2xl border border-line bg-white p-5 transition-shadow hover:shadow-soft"
+              className="rounded-2xl border border-line bg-surface p-5 transition-shadow hover:shadow-soft"
             >
-              <div className="h-24 rounded-xl bg-blush-50" />
+              <div className="h-24 rounded-xl bg-primary-subtle" />
               <h3 className="mt-4 font-display text-base font-semibold text-ink">{brand.name}</h3>
-              <p className="mt-1 line-clamp-2 text-sm text-ink-soft">{brand.description}</p>
+              <p className="mt-1 line-clamp-2 text-sm text-content-secondary">{brand.description}</p>
             </Link>
           ))}
         </div>

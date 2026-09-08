@@ -83,7 +83,7 @@ export default function ResetPasswordPage() {
   if (recovery === 'checking') {
     return (
       <AuthShell title="Set a new password" subtitle="Checking your reset link…" footer={null}>
-        <div className="h-32 animate-pulse rounded-xl bg-canvas-alt" />
+        <div className="h-32 animate-pulse rounded-xl bg-surface-raised" />
       </AuthShell>
     );
   }
@@ -94,12 +94,12 @@ export default function ResetPasswordPage() {
         title="This link has expired"
         subtitle="Reset links are valid for one hour."
         footer={
-          <Link href="/login" className="font-semibold text-coral-600">
+          <Link href="/login" className="font-semibold text-primary">
             Back to login
           </Link>
         }
       >
-        <p className="text-sm leading-6 text-ink-soft">
+        <p className="text-sm leading-6 text-content-secondary">
           Request a new link and we&apos;ll email it straight over.
         </p>
         <Link href="/forgot-password" className="btn-primary mt-6 w-full">

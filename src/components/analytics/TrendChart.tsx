@@ -102,7 +102,7 @@ export function TrendChart({
 
   if (points.length === 0) {
     return (
-      <p className="rounded-xl border border-dashed border-line bg-canvas-alt px-4 py-10 text-center text-sm text-ink-faint">
+      <p className="rounded-xl border border-dashed border-line bg-surface-raised px-4 py-10 text-center text-sm text-content-tertiary">
         No data in this range.
       </p>
     );
@@ -218,14 +218,14 @@ export function TrendChart({
         {hovered && (
           <div
             role="status"
-            className="pointer-events-none absolute left-0 top-0 rounded-xl border border-line bg-white px-3 py-2 text-xs shadow-soft"
+            className="pointer-events-none absolute left-0 top-0 rounded-xl border border-line bg-surface px-3 py-2 text-xs shadow-soft"
             style={{
               transform: `translateX(${(plot.x(hoverIndex!) / WIDTH) * 100}%)`,
               marginLeft: 8,
             }}
           >
             <p className="font-semibold text-ink">{hovered.date}</p>
-            <p className="mt-0.5 text-ink-soft">
+            <p className="mt-0.5 text-content-secondary">
               {hoveredMissing ? (
                 // The honest tooltip for a gap.
                 <span>Not measured</span>
@@ -240,7 +240,7 @@ export function TrendChart({
       </div>
 
       {missingDates.length > 0 && (
-        <figcaption className="mt-3 text-xs text-ink-faint">
+        <figcaption className="mt-3 text-xs text-content-tertiary">
           {missingDates.length} day{missingDates.length === 1 ? '' : 's'} in this range have no ingested data and
           are shown as gaps rather than zeros.
         </figcaption>

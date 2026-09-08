@@ -115,7 +115,7 @@ export function PublishQueue({ brandId }: { brandId?: string }) {
             aria-pressed={filter === option.id}
             onClick={() => setFilter(option.id)}
             className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${
-              filter === option.id ? 'bg-ink text-canvas' : 'border border-line text-ink-soft hover:bg-canvas-alt'
+              filter === option.id ? 'bg-ink text-canvas' : 'border border-line text-content-secondary hover:bg-surface-raised'
             }`}
           >
             {option.label}
@@ -129,22 +129,22 @@ export function PublishQueue({ brandId }: { brandId?: string }) {
       {loading ? (
         <div className="space-y-3" role="status" aria-label="Loading the queue">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="h-24 animate-pulse rounded-2xl bg-canvas-alt" />
+            <div key={i} className="h-24 animate-pulse rounded-2xl bg-surface-raised" />
           ))}
         </div>
       ) : error ? (
-        <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-6">
-          <p className="text-sm font-semibold text-red-700">{error}</p>
+        <div role="alert" className="rounded-2xl border border-danger bg-danger-subtle p-6">
+          <p className="text-sm font-semibold text-danger">{error}</p>
           <button type="button" onClick={() => void load()} className="btn-ghost mt-4">
             Try again
           </button>
         </div>
       ) : posts.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-line bg-white px-6 py-16 text-center">
+        <div className="rounded-2xl border border-dashed border-line bg-surface px-6 py-16 text-center">
           <h3 className="font-display text-lg font-semibold text-ink">
             {filter === 'upcoming' ? 'Nothing scheduled' : `No ${filter} posts`}
           </h3>
-          <p className="mx-auto mt-2 max-w-sm text-sm text-ink-soft">
+          <p className="mx-auto mt-2 max-w-sm text-sm text-content-secondary">
             Generate copy or creative in the studio, then schedule it here. Publishing needs a{' '}
             <Link href="/dashboard/connections" className="font-semibold text-ink underline">
               connected account
@@ -155,30 +155,30 @@ export function PublishQueue({ brandId }: { brandId?: string }) {
       ) : (
         <ul className="space-y-3">
           {posts.map((post) => (
-            <li key={post.id} className="rounded-2xl border border-line bg-white p-5">
+            <li key={post.id} className="rounded-2xl border border-line bg-surface p-5">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <StatusPill status={post.status} />
-                    <span className="rounded-full bg-canvas-alt px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-ink-soft">
+                    <span className="rounded-full bg-surface-raised px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-content-secondary">
                       {post.platformLabel}
                     </span>
-                    <span className="text-xs text-ink-faint">{describeTiming(post)}</span>
+                    <span className="text-xs text-content-tertiary">{describeTiming(post)}</span>
                   </div>
 
                   {post.caption && (
-                    <p className="mt-3 line-clamp-2 max-w-2xl text-sm leading-6 text-ink-soft">{post.caption}</p>
+                    <p className="mt-3 line-clamp-2 max-w-2xl text-sm leading-6 text-content-secondary">{post.caption}</p>
                   )}
 
                   {/* The honest case: a post with no job will never be sent. */}
                   {!post.job && !['published', 'failed', 'cancelled'].includes(post.status) && (
-                    <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+                    <p className="mt-3 rounded-xl border border-warning bg-warning-subtle px-3 py-2 text-xs leading-5 text-warning">
                       This post has no publishing job, so nothing will send it. Schedule it again.
                     </p>
                   )}
 
                   {post.job && post.job.attempts > 0 && post.status !== 'published' && (
-                    <p className="mt-3 text-xs leading-5 text-ink-soft">
+                    <p className="mt-3 text-xs leading-5 text-content-secondary">
                       Attempt {post.job.attempts} of {post.job.maxAttempts}
                       {post.job.nextAttemptAt && ` · next try ${new Date(post.job.nextAttemptAt).toLocaleString()}`}
                     </p>
@@ -187,7 +187,7 @@ export function PublishQueue({ brandId }: { brandId?: string }) {
                   {(post.lastError || post.job?.errorMessage) && (
                     <p
                       role="note"
-                      className="mt-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs leading-5 text-red-700"
+                      className="mt-2 rounded-xl border border-danger bg-danger-subtle px-3 py-2 text-xs leading-5 text-danger"
                     >
                       {post.lastError ?? post.job?.errorMessage}
                       {/* A credential problem is fixable by the user, so link it. */}
@@ -210,7 +210,7 @@ export function PublishQueue({ brandId }: { brandId?: string }) {
                       href={post.externalUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-xs font-semibold text-ink-soft hover:bg-canvas-alt"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-xs font-semibold text-content-secondary hover:bg-surface-raised"
                     >
                       <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                       View post
@@ -222,7 +222,7 @@ export function PublishQueue({ brandId }: { brandId?: string }) {
                       type="button"
                       onClick={() => void cancel(post)}
                       disabled={busy === post.id}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-danger px-3 py-1.5 text-xs font-semibold text-danger hover:bg-danger-subtle disabled:opacity-50"
                     >
                       {busy === post.id ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
@@ -266,17 +266,17 @@ function describeTiming(post: QueuePost): string {
 
 function StatusPill({ status }: { status: string }) {
   const map: Record<string, { label: string; className: string; icon: typeof Clock }> = {
-    published: { label: 'Published', className: 'bg-mint-50 text-mint-600', icon: CheckCircle2 },
-    publishing: { label: 'Publishing', className: 'bg-canvas-alt text-ink-soft', icon: Loader2 },
-    scheduled: { label: 'Scheduled', className: 'bg-lavender-200 text-ink', icon: Clock },
-    queued: { label: 'Queued', className: 'bg-lavender-200 text-ink', icon: Clock },
-    failed: { label: 'Failed', className: 'bg-red-50 text-red-700', icon: AlertTriangle },
-    cancelled: { label: 'Cancelled', className: 'bg-canvas-alt text-ink-faint', icon: XCircle },
-    draft: { label: 'Draft', className: 'bg-canvas-alt text-ink-soft', icon: Clock },
-    awaiting_approval: { label: 'Awaiting approval', className: 'bg-amber-50 text-amber-800', icon: Clock },
+    published: { label: 'Published', className: 'bg-success-subtle text-success', icon: CheckCircle2 },
+    publishing: { label: 'Publishing', className: 'bg-surface-raised text-content-secondary', icon: Loader2 },
+    scheduled: { label: 'Scheduled', className: 'bg-info-subtle text-ink', icon: Clock },
+    queued: { label: 'Queued', className: 'bg-info-subtle text-ink', icon: Clock },
+    failed: { label: 'Failed', className: 'bg-danger-subtle text-danger', icon: AlertTriangle },
+    cancelled: { label: 'Cancelled', className: 'bg-surface-raised text-content-tertiary', icon: XCircle },
+    draft: { label: 'Draft', className: 'bg-surface-raised text-content-secondary', icon: Clock },
+    awaiting_approval: { label: 'Awaiting approval', className: 'bg-warning-subtle text-warning', icon: Clock },
   };
 
-  const entry = map[status] ?? { label: status, className: 'bg-canvas-alt text-ink-soft', icon: Clock };
+  const entry = map[status] ?? { label: status, className: 'bg-surface-raised text-content-secondary', icon: Clock };
   const Icon = entry.icon;
 
   return (

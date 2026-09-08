@@ -1,0 +1,249 @@
+/**
+ * OwBrand design tokens.
+ * ============================================================================
+ * Every value here is verified by `scripts/check-contrast.mjs`, which asserts
+ * the foreground/background pairs the product actually renders against WCAG
+ * 2.2 AA. A palette chosen by eye fails exactly the pairs nobody thought to
+ * check — secondary text on a raised surface, an input border against the
+ * page, a semantic badge in dark mode — so the numbers are computed, not
+ * judged. `npm run check:contrast` gates it.
+ *
+ * SEMANTIC, NOT LITERAL. Components reference `--color-text-secondary`, never
+ * `--gray-600`. That is what made the previous palette impossible to change:
+ * every screen named its colours literally (`text-ink-soft`, `bg-canvas-alt`),
+ * so a palette change meant editing every file. Here, re-pointing one token
+ * re-themes the app.
+ *
+ * DARK IS DESIGNED, NOT INVERTED. The dark block re-chooses every accent for a
+ * dark ground rather than flipping the light values: indigo #4338CA has 1.9:1
+ * on a dark surface and would be unreadable, so dark uses lighter steps of the
+ * same hue.
+ */
+
+:root {
+  /* --- Surfaces ------------------------------------------------------- */
+  --color-bg: #fafafb;
+  --color-surface: #ffffff;
+  --color-surface-raised: #f4f5f7;
+  --color-surface-sunken: #eff0f3;
+  --color-surface-overlay: #ffffff;
+
+  /* --- Text ----------------------------------------------------------- */
+  --color-text: #1a1c21;
+  --color-text-secondary: #4b5162;
+  --color-text-tertiary: #646d7b;
+  --color-text-inverse: #ffffff;
+
+  /* --- Borders -------------------------------------------------------- */
+  /* `border` is a hairline for grouping; `border-strong` is for controls that
+     must be discernible on their own, which needs 3:1 rather than 1.5:1. */
+  --color-border: #e4e6eb;
+  --color-border-strong: #828a9c;
+
+  /* --- Primary: deep indigo, per spec section 2 ----------------------- */
+  --color-primary: #4338ca;
+  --color-primary-hover: #3730a3;
+  --color-primary-active: #312e81;
+  --color-primary-text: #ffffff;
+  --color-primary-subtle: #eef0fe;
+  --color-primary-on-subtle: #3730a3;
+
+  /* --- Semantic ------------------------------------------------------- */
+  /* Reserved for state. Never reused as a chart series, and always shipped
+     with an icon or label so state never depends on colour alone. */
+  --color-success: #15803d;
+  --color-success-subtle: #ebf7ef;
+  --color-warning: #a16207;
+  --color-warning-subtle: #fdf6e3;
+  --color-danger: #b91c1c;
+  --color-danger-subtle: #fdf0f0;
+  --color-info: #0369a1;
+  --color-info-subtle: #ebf5fb;
+  /* Violet marks AI-generated and AI-suggested surfaces. */
+  --color-ai: #6d28d9;
+  --color-ai-subtle: #f3eefe;
+
+  /* --- Charts --------------------------------------------------------- */
+  /* Four categorical slots in fixed order, validated for CVD separation.
+     Capped at four: a fifth hue including both green and red cannot clear the
+     protanopia floor. Past four series, use small multiples. */
+  --chart-1: #4338ca;
+  --chart-2: #a16207;
+  --chart-3: #0891b2;
+  --chart-4: #be185d;
+  /* Sequential ramp for magnitude, monotonic in lightness. */
+  --chart-seq-1: #eef0fe;
+  --chart-seq-2: #c7cbfb;
+  --chart-seq-3: #8b8af5;
+  --chart-seq-4: #6366f1;
+  --chart-seq-5: #4338ca;
+  --chart-seq-6: #312e81;
+  --chart-grid: #e4e6eb;
+  --chart-axis-text: #646d7b;
+  --chart-context: #9aa1b1;
+
+  /* --- Radii: 12-16px per spec section 13 ----------------------------- */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+
+  /* --- Elevation: minimal shadow per spec section 13 ------------------ */
+  --shadow-xs: 0 1px 2px rgb(16 18 27 / 0.04);
+  --shadow-sm: 0 1px 3px rgb(16 18 27 / 0.06), 0 1px 2px rgb(16 18 27 / 0.04);
+  --shadow-md: 0 4px 12px rgb(16 18 27 / 0.07), 0 1px 3px rgb(16 18 27 / 0.05);
+  --shadow-lg: 0 12px 32px rgb(16 18 27 / 0.1), 0 2px 6px rgb(16 18 27 / 0.05);
+  --shadow-focus: 0 0 0 3px rgb(67 56 202 / 0.28);
+
+  /* --- Motion: spec section 14 timings -------------------------------- */
+  --duration-micro: 140ms;
+  --duration-standard: 210ms;
+  --duration-complex: 300ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* --- Glass: spec section 15, floating surfaces only ----------------- */
+  --glass-bg: rgb(255 255 255 / 0.82);
+  --glass-border: rgb(255 255 255 / 0.7);
+  /* Kept modest: a large blur radius is the most expensive thing a compositor
+     can be asked for, and spec section 18 says limit it. */
+  --glass-blur: 16px;
+
+  color-scheme: light;
+}
+
+/*
+ * Dark theme.
+ *
+ * Two selectors carry identical values: the media query applies it when the OS
+ * asks and the user has expressed no preference, and the attribute applies it
+ * when the user chose it explicitly. The `:not([data-theme='light'])` guard on
+ * the media query is what lets an explicit light choice beat a dark OS
+ * setting — without it, a user who picked light would still get dark.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --color-bg: #0e1016;
+    --color-surface: #16181f;
+    --color-surface-raised: #1e212a;
+    --color-surface-sunken: #0a0c11;
+    --color-surface-overlay: #1e212a;
+
+    --color-text: #f2f3f5;
+    --color-text-secondary: #b0b6c3;
+    --color-text-tertiary: #8b92a1;
+    --color-text-inverse: #12131a;
+
+    --color-border: #2a2e39;
+    --color-border-strong: #6b7280;
+
+    --color-primary: #8b8af5;
+    --color-primary-hover: #a5a4f8;
+    --color-primary-active: #c7cbfb;
+    --color-primary-text: #12131a;
+    --color-primary-subtle: #1e1e3c;
+    --color-primary-on-subtle: #b4b3f9;
+
+    --color-success: #4ade80;
+    --color-success-subtle: #10281a;
+    --color-warning: #fbbf24;
+    --color-warning-subtle: #2a2110;
+    --color-danger: #f87171;
+    --color-danger-subtle: #2c1416;
+    --color-info: #38bdf8;
+    --color-info-subtle: #0c2430;
+    --color-ai: #c4b5fd;
+    --color-ai-subtle: #241b3d;
+
+    --chart-1: #6f6fe0;
+    --chart-2: #bf8214;
+    --chart-3: #3597bd;
+    --chart-4: #cf5990;
+    --chart-seq-1: #1e1e3c;
+    --chart-seq-2: #312e81;
+    --chart-seq-3: #4338ca;
+    --chart-seq-4: #6366f1;
+    --chart-seq-5: #8b8af5;
+    --chart-seq-6: #c7cbfb;
+    --chart-grid: #2a2e39;
+    --chart-axis-text: #8b92a1;
+    --chart-context: #6b7280;
+
+    /* Shadows barely read on a dark ground, so elevation comes mostly from the
+       surface step; the shadow only anchors floating layers. */
+    --shadow-xs: 0 1px 2px rgb(0 0 0 / 0.3);
+    --shadow-sm: 0 1px 3px rgb(0 0 0 / 0.4);
+    --shadow-md: 0 4px 12px rgb(0 0 0 / 0.45);
+    --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.55);
+    --shadow-focus: 0 0 0 3px rgb(139 138 245 / 0.4);
+
+    --glass-bg: rgb(30 33 42 / 0.82);
+    --glass-border: rgb(255 255 255 / 0.08);
+
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --color-bg: #0e1016;
+  --color-surface: #16181f;
+  --color-surface-raised: #1e212a;
+  --color-surface-sunken: #0a0c11;
+  --color-surface-overlay: #1e212a;
+
+  --color-text: #f2f3f5;
+  --color-text-secondary: #b0b6c3;
+  --color-text-tertiary: #8b92a1;
+  --color-text-inverse: #12131a;
+
+  --color-border: #2a2e39;
+  --color-border-strong: #6b7280;
+
+  --color-primary: #8b8af5;
+  --color-primary-hover: #a5a4f8;
+  --color-primary-active: #c7cbfb;
+  --color-primary-text: #12131a;
+  --color-primary-subtle: #1e1e3c;
+  --color-primary-on-subtle: #b4b3f9;
+
+  --color-success: #4ade80;
+  --color-success-subtle: #10281a;
+  --color-warning: #fbbf24;
+  --color-warning-subtle: #2a2110;
+  --color-danger: #f87171;
+  --color-danger-subtle: #2c1416;
+  --color-info: #38bdf8;
+  --color-info-subtle: #0c2430;
+  --color-ai: #c4b5fd;
+  --color-ai-subtle: #241b3d;
+
+  --chart-1: #6f6fe0;
+  --chart-2: #bf8214;
+  --chart-3: #3597bd;
+  --chart-4: #cf5990;
+  --chart-seq-1: #1e1e3c;
+  --chart-seq-2: #312e81;
+  --chart-seq-3: #4338ca;
+  --chart-seq-4: #6366f1;
+  --chart-seq-5: #8b8af5;
+  --chart-seq-6: #c7cbfb;
+  --chart-grid: #2a2e39;
+  --chart-axis-text: #8b92a1;
+  --chart-context: #6b7280;
+
+  --shadow-xs: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-sm: 0 1px 3px rgb(0 0 0 / 0.4);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 0.45);
+  --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.55);
+  --shadow-focus: 0 0 0 3px rgb(139 138 245 / 0.4);
+
+  --glass-bg: rgb(30 33 42 / 0.82);
+  --glass-border: rgb(255 255 255 / 0.08);
+
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}

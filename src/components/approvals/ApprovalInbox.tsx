@@ -107,7 +107,7 @@ export function ApprovalInbox({ brandId }: { brandId?: string }) {
     return (
       <div className="space-y-4" role="status" aria-label="Loading approvals">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="h-40 animate-pulse rounded-2xl bg-canvas-alt" />
+          <div key={i} className="h-40 animate-pulse rounded-2xl bg-surface-raised" />
         ))}
         <span className="sr-only">Loading approvals…</span>
       </div>
@@ -116,8 +116,8 @@ export function ApprovalInbox({ brandId }: { brandId?: string }) {
 
   if (error) {
     return (
-      <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-6">
-        <p className="text-sm font-semibold text-red-700">{error}</p>
+      <div role="alert" className="rounded-2xl border border-danger bg-danger-subtle p-6">
+        <p className="text-sm font-semibold text-danger">{error}</p>
         <button type="button" onClick={() => void load()} className="btn-ghost mt-4">
           Try again
         </button>
@@ -127,12 +127,12 @@ export function ApprovalInbox({ brandId }: { brandId?: string }) {
 
   if (items.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-line bg-white px-6 py-20 text-center">
-        <span className="rounded-2xl bg-mint-50 p-3">
-          <ShieldCheck className="h-6 w-6 text-mint-600" aria-hidden="true" />
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-line bg-surface px-6 py-20 text-center">
+        <span className="rounded-2xl bg-success-subtle p-3">
+          <ShieldCheck className="h-6 w-6 text-success" aria-hidden="true" />
         </span>
         <h3 className="mt-4 font-display text-lg font-semibold text-ink">Nothing waiting</h3>
-        <p className="mt-2 max-w-sm text-sm text-ink-soft">
+        <p className="mt-2 max-w-sm text-sm text-content-secondary">
           Generated content with factuality findings will appear here for review before it can be published.
         </p>
       </div>
@@ -149,25 +149,25 @@ export function ApprovalInbox({ brandId }: { brandId?: string }) {
 
       <ul className="space-y-4">
         {items.map((item) => (
-          <li key={item.asset.id} className="rounded-2xl border border-line bg-white p-5">
+          <li key={item.asset.id} className="rounded-2xl border border-line bg-surface p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="rounded-full bg-canvas-alt px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-ink-soft">
+                  <span className="rounded-full bg-surface-raised px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-content-secondary">
                     {item.asset.type}
                   </span>
                   {item.blocked ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-red-700">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-danger-subtle px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-danger">
                       <AlertTriangle className="h-3 w-3" aria-hidden="true" /> Blocking
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-warning-subtle px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-warning">
                       <Info className="h-3 w-3" aria-hidden="true" /> Review
                     </span>
                   )}
                 </div>
                 {item.asset.caption && (
-                  <p className="mt-3 line-clamp-3 max-w-2xl text-sm leading-6 text-ink-soft">
+                  <p className="mt-3 line-clamp-3 max-w-2xl text-sm leading-6 text-content-secondary">
                     {item.asset.caption}
                   </p>
                 )}
@@ -180,13 +180,13 @@ export function ApprovalInbox({ brandId }: { brandId?: string }) {
                   key={finding.id}
                   className={`rounded-xl border px-3 py-2.5 ${
                     finding.severity === 'block'
-                      ? 'border-red-200 bg-red-50'
-                      : 'border-amber-200 bg-amber-50'
+                      ? 'border-danger bg-danger-subtle'
+                      : 'border-warning bg-warning-subtle'
                   }`}
                 >
                   <p
                     className={`text-xs font-semibold uppercase tracking-wide ${
-                      finding.severity === 'block' ? 'text-red-700' : 'text-amber-800'
+                      finding.severity === 'block' ? 'text-danger' : 'text-warning'
                     }`}
                   >
                     {finding.category.replace(/_/g, ' ')}
@@ -194,13 +194,13 @@ export function ApprovalInbox({ brandId }: { brandId?: string }) {
                   <p className="mt-1 text-sm text-ink">
                     <span className="font-medium">“{finding.excerpt}”</span>
                   </p>
-                  <p className="mt-1 text-xs leading-5 text-ink-soft">{finding.explanation}</p>
+                  <p className="mt-1 text-xs leading-5 text-content-secondary">{finding.explanation}</p>
                 </div>
               ))}
             </div>
 
             {item.blocked && (
-              <label className="mt-4 flex items-start gap-2 text-xs text-ink-soft">
+              <label className="mt-4 flex items-start gap-2 text-xs text-content-secondary">
                 <input
                   type="checkbox"
                   checked={Boolean(acknowledged[item.asset.id])}
@@ -244,7 +244,7 @@ export function ApprovalInbox({ brandId }: { brandId?: string }) {
                 type="button"
                 onClick={() => void decide(item, 'reject')}
                 disabled={acting === item.asset.id}
-                className="inline-flex items-center gap-2 rounded-full border border-red-200 px-4 py-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-full border border-danger px-4 py-2 text-xs font-semibold text-danger hover:bg-danger-subtle disabled:opacity-50"
               >
                 <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
                 Reject
@@ -259,11 +259,11 @@ export function ApprovalInbox({ brandId }: { brandId?: string }) {
 
 function Stat({ label, value, tone }: { label: string; value: number; tone?: 'danger' | 'warning' }) {
   const toneClass =
-    tone === 'danger' ? 'text-red-700' : tone === 'warning' ? 'text-amber-800' : 'text-ink';
+    tone === 'danger' ? 'text-danger' : tone === 'warning' ? 'text-warning' : 'text-ink';
 
   return (
-    <div className="rounded-2xl border border-line bg-white px-5 py-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-ink-faint">{label}</p>
+    <div className="rounded-2xl border border-line bg-surface px-5 py-4">
+      <p className="text-xs font-medium uppercase tracking-wide text-content-tertiary">{label}</p>
       <p className={`mt-1 font-display text-2xl font-bold tabular-nums ${toneClass}`}>{value}</p>
     </div>
   );

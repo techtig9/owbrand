@@ -23,7 +23,7 @@ export default function Error({ error, reset }: { error: Error & { digest?: stri
       <div className="w-full max-w-md text-center">
         <p className="section-eyebrow mx-auto">Something went wrong</p>
         <h1 className="mt-5 font-display text-3xl font-bold text-ink">We hit an unexpected error</h1>
-        <p className="mt-3 text-sm leading-6 text-ink-soft">
+        <p className="mt-3 text-sm leading-6 text-content-secondary">
           This has been logged and we&apos;re looking into it. Try again — most of the time it clears straight away.
         </p>
 
@@ -39,7 +39,7 @@ export default function Error({ error, reset }: { error: Error & { digest?: stri
         </div>
 
         {error.digest && (
-          <p className="mt-8 text-xs text-ink-faint">
+          <p className="mt-8 text-xs text-content-tertiary">
             Reference: <code className="font-mono">{error.digest}</code>
           </p>
         )}

@@ -7,7 +7,7 @@ export default function NotFound() {
       <div className="w-full max-w-md text-center">
         <p className="section-eyebrow mx-auto">404</p>
         <h1 className="mt-5 font-display text-3xl font-bold text-ink">We can&apos;t find that page</h1>
-        <p className="mt-3 text-sm leading-6 text-ink-soft">
+        <p className="mt-3 text-sm leading-6 text-content-secondary">
           The link may be out of date, or the page may have moved.
         </p>
 

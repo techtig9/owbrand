@@ -201,18 +201,18 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
       <div className="space-y-4" role="status" aria-label="Loading analytics">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="h-32 animate-pulse rounded-2xl bg-canvas-alt" />
+            <div key={i} className="h-32 animate-pulse rounded-2xl bg-surface-raised" />
           ))}
         </div>
-        <div className="h-64 animate-pulse rounded-2xl bg-canvas-alt" />
+        <div className="h-64 animate-pulse rounded-2xl bg-surface-raised" />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-6">
-        <p className="text-sm font-semibold text-red-700">{error}</p>
+      <div role="alert" className="rounded-2xl border border-danger bg-danger-subtle p-6">
+        <p className="text-sm font-semibold text-danger">{error}</p>
         <button type="button" onClick={() => void load()} className="btn-ghost mt-4">
           Try again
         </button>
@@ -248,7 +248,7 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
             aria-pressed={days === option.days}
             onClick={() => setDays(option.days)}
             className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${
-              days === option.days ? 'bg-ink text-canvas' : 'border border-line text-ink-soft hover:bg-canvas-alt'
+              days === option.days ? 'bg-ink text-canvas' : 'border border-line text-content-secondary hover:bg-surface-raised'
             }`}
           >
             {option.label}
@@ -258,7 +258,7 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
         <span className="ml-auto flex flex-wrap items-center gap-2">
           <a
             href={`/api/analytics/export?brandId=${encodeURIComponent(brandId)}&from=${overview.range.from}&to=${overview.range.to}&dataset=daily`}
-            className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-2 text-xs font-semibold text-ink-soft hover:bg-canvas-alt"
+            className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-2 text-xs font-semibold text-content-secondary hover:bg-surface-raised"
           >
             <Download className="h-3.5 w-3.5" aria-hidden="true" />
             Export CSV
@@ -328,7 +328,7 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
         />
       )}
 
-      <section className="rounded-2xl border border-line bg-white p-5">
+      <section className="rounded-2xl border border-line bg-surface p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-display text-lg font-semibold text-ink">Trend</h2>
           <div className="flex flex-wrap gap-1.5">
@@ -340,7 +340,7 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
                 onClick={() => setMetric(option.key)}
                 disabled={!measured(option.key)}
                 className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                  metric === option.key ? 'bg-ink text-canvas' : 'border border-line text-ink-soft hover:bg-canvas-alt'
+                  metric === option.key ? 'bg-ink text-canvas' : 'border border-line text-content-secondary hover:bg-surface-raised'
                 }`}
                 title={measured(option.key) ? undefined : 'Not reported by the connected platforms'}
               >
@@ -362,9 +362,9 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
       </section>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        <section className="rounded-2xl border border-line bg-white p-5">
+        <section className="rounded-2xl border border-line bg-surface p-5">
           <h2 className="font-display text-lg font-semibold text-ink">By platform</h2>
-          <p className="mt-1 text-xs text-ink-soft">Impressions. Bar length is the comparison.</p>
+          <p className="mt-1 text-xs text-content-secondary">Impressions. Bar length is the comparison.</p>
           <div className="mt-5">
             <MagnitudeBars
               valueLabel="Impressions"
@@ -380,16 +380,16 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-line bg-white p-5">
+        <section className="rounded-2xl border border-line bg-surface p-5">
           <h2 className="font-display text-lg font-semibold text-ink">Campaigns</h2>
           {overview.campaigns.length === 0 ? (
-            <p className="mt-4 rounded-xl border border-dashed border-line bg-canvas-alt px-4 py-8 text-center text-sm text-ink-faint">
+            <p className="mt-4 rounded-xl border border-dashed border-line bg-surface-raised px-4 py-8 text-center text-sm text-content-tertiary">
               No campaigns yet.
             </p>
           ) : (
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-left text-sm">
-                <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-faint">
+                <thead className="border-b border-line text-xs uppercase tracking-wide text-content-tertiary">
                   <tr>
                     <th className="py-2 pr-3 font-medium">Campaign</th>
                     <th className="py-2 pr-3 font-medium">Posts</th>
@@ -401,11 +401,11 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
                   {overview.campaigns.map((campaign) => (
                     <tr key={campaign.campaignId} className="border-b border-line last:border-0">
                       <td className="py-2 pr-3 text-ink">{campaign.name}</td>
-                      <td className="py-2 pr-3 tabular-nums text-ink-soft">{campaign.postCount}</td>
-                      <td className="py-2 pr-3 tabular-nums text-ink-soft">
+                      <td className="py-2 pr-3 tabular-nums text-content-secondary">{campaign.postCount}</td>
+                      <td className="py-2 pr-3 tabular-nums text-content-secondary">
                         {campaign.hasData ? compactNumber(campaign.impressions) : '—'}
                       </td>
-                      <td className="py-2 tabular-nums text-ink-soft">{formatRate(campaign.engagementRate)}</td>
+                      <td className="py-2 tabular-nums text-content-secondary">{formatRate(campaign.engagementRate)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -415,10 +415,10 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
         </section>
       </div>
 
-      <section className="rounded-2xl border border-line bg-white p-5">
+      <section className="rounded-2xl border border-line bg-surface p-5">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="font-display text-lg font-semibold text-ink">Top posts</h2>
-          <p className="text-xs text-ink-faint">
+          <p className="text-xs text-content-tertiary">
             {overview.postsMeasured} post{overview.postsMeasured === 1 ? '' : 's'} measured
             {overview.postsExcludedForLowVolume > 0 &&
               ` · ${overview.postsExcludedForLowVolume} excluded for too few impressions to rank`}
@@ -426,13 +426,13 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
         </div>
 
         {overview.topPosts.length === 0 ? (
-          <p className="mt-4 rounded-xl border border-dashed border-line bg-canvas-alt px-4 py-8 text-center text-sm text-ink-faint">
+          <p className="mt-4 rounded-xl border border-dashed border-line bg-surface-raised px-4 py-8 text-center text-sm text-content-tertiary">
             No posts have enough measured impressions to rank yet.
           </p>
         ) : (
           <div className="mt-4 overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-faint">
+              <thead className="border-b border-line text-xs uppercase tracking-wide text-content-tertiary">
                 <tr>
                   <th className="py-2 pr-3 font-medium">Post</th>
                   <th className="py-2 pr-3 font-medium">Platform</th>
@@ -444,12 +444,12 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
               <tbody>
                 {overview.topPosts.map((post) => (
                   <tr key={`${post.platform}:${post.externalPostId}`} className="border-b border-line last:border-0">
-                    <td className="py-2 pr-3 font-mono text-xs text-ink-soft">{post.externalPostId.slice(0, 18)}</td>
-                    <td className="py-2 pr-3 capitalize text-ink-soft">{post.platform}</td>
-                    <td className="py-2 pr-3 text-ink-soft">
+                    <td className="py-2 pr-3 font-mono text-xs text-content-secondary">{post.externalPostId.slice(0, 18)}</td>
+                    <td className="py-2 pr-3 capitalize text-content-secondary">{post.platform}</td>
+                    <td className="py-2 pr-3 text-content-secondary">
                       {post.publishedAt ? new Date(post.publishedAt).toLocaleDateString() : '—'}
                     </td>
-                    <td className="py-2 pr-3 tabular-nums text-ink-soft">{compactNumber(post.impressions)}</td>
+                    <td className="py-2 pr-3 tabular-nums text-content-secondary">{compactNumber(post.impressions)}</td>
                     <td className="py-2 tabular-nums font-semibold text-ink">{formatRate(post.engagementRate)}</td>
                   </tr>
                 ))}
@@ -478,12 +478,12 @@ function CoverageBanner({
 }) {
   if (!coverage.hasData) {
     return (
-      <div role="note" className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
-        <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-amber-800">
+      <div role="note" className="rounded-2xl border border-warning bg-warning-subtle px-5 py-4">
+        <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-warning">
           <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
           No data ingested
         </p>
-        <p className="mt-1 text-sm leading-6 text-ink-soft">
+        <p className="mt-1 text-sm leading-6 text-content-secondary">
           Nothing has been measured for {range.from} to {range.to}. Analytics arrive once an account is connected
           and the ingestion job has run — every figure below would otherwise be a zero nobody measured.{' '}
           <Link href="/dashboard/connections" className="font-semibold text-ink underline">
@@ -501,12 +501,12 @@ function CoverageBanner({
   if (!partial && !hasUnreported) return null;
 
   return (
-    <div role="note" className="rounded-2xl border border-line bg-canvas-alt px-5 py-4">
-      <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-ink-faint">
+    <div role="note" className="rounded-2xl border border-line bg-surface-raised px-5 py-4">
+      <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-content-tertiary">
         <Info className="h-3.5 w-3.5" aria-hidden="true" />
         What is measured
       </p>
-      <p className="mt-1 text-sm leading-6 text-ink-soft">
+      <p className="mt-1 text-sm leading-6 text-content-secondary">
         {partial && (
           <>
             {coverage.daysWithData} of {coverage.daysRequested} days have ingested data.{' '}
@@ -534,9 +534,9 @@ function RecommendationList({
   onDecide: (recommendation: Recommendation, decision: 'apply' | 'dismiss') => void;
 }) {
   return (
-    <section className="rounded-2xl border border-line bg-white p-5">
+    <section className="rounded-2xl border border-line bg-surface p-5">
       <h2 className="font-display text-lg font-semibold text-ink">What to do next</h2>
-      <p className="mt-1 text-xs text-ink-soft">
+      <p className="mt-1 text-xs text-content-secondary">
         Every recommendation shows the confidence it was derived at and the numbers behind it.
       </p>
 
@@ -548,12 +548,12 @@ function RecommendationList({
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="text-sm font-semibold text-ink">{recommendation.title}</h3>
                   <ConfidenceBadge recommendation={recommendation} />
-                  <span className="rounded-full bg-canvas-alt px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-ink-soft">
+                  <span className="rounded-full bg-surface-raised px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-content-secondary">
                     {recommendation.priority}
                   </span>
                 </div>
 
-                <p className="mt-2 whitespace-pre-line text-sm leading-6 text-ink-soft">
+                <p className="mt-2 whitespace-pre-line text-sm leading-6 text-content-secondary">
                   {recommendation.recommendation}
                 </p>
 
@@ -565,7 +565,7 @@ function RecommendationList({
                   type="button"
                   onClick={() => onDecide(recommendation, 'apply')}
                   disabled={busyId === recommendation.id}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-xs font-semibold text-ink-soft hover:bg-canvas-alt disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-xs font-semibold text-content-secondary hover:bg-surface-raised disabled:opacity-50"
                 >
                   {busyId === recommendation.id ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
@@ -578,7 +578,7 @@ function RecommendationList({
                   type="button"
                   onClick={() => onDecide(recommendation, 'dismiss')}
                   disabled={busyId === recommendation.id}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-xs font-semibold text-ink-faint hover:bg-canvas-alt disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-xs font-semibold text-content-tertiary hover:bg-surface-raised disabled:opacity-50"
                 >
                   <X className="h-3.5 w-3.5" aria-hidden="true" />
                   Dismiss
@@ -603,9 +603,9 @@ function ConfidenceBadge({ recommendation }: { recommendation: Recommendation })
   if (recommendation.confidence === null || !recommendation.confidenceBand) return null;
 
   const styles = {
-    high: 'bg-mint-50 text-mint-600',
-    moderate: 'bg-canvas-alt text-ink-soft',
-    low: 'bg-amber-50 text-amber-800',
+    high: 'bg-success-subtle text-success',
+    moderate: 'bg-surface-raised text-content-secondary',
+    low: 'bg-warning-subtle text-warning',
   } as const;
 
   return (
@@ -625,20 +625,20 @@ function Evidence({ recommendation }: { recommendation: Recommendation }) {
 
   return (
     <details className="mt-3">
-      <summary className="cursor-pointer text-xs font-semibold text-ink-soft">
+      <summary className="cursor-pointer text-xs font-semibold text-content-secondary">
         Evidence ({entries.length} metric{entries.length === 1 ? '' : 's'})
       </summary>
       <dl className="mt-2 grid gap-1.5 sm:grid-cols-2">
         {entries.map(([key, value]) => (
-          <div key={key} className="flex justify-between gap-3 rounded-lg bg-canvas-alt px-3 py-1.5">
-            <dt className="text-xs text-ink-soft">{key.replace(/([A-Z])/g, ' $1').toLowerCase()}</dt>
+          <div key={key} className="flex justify-between gap-3 rounded-lg bg-surface-raised px-3 py-1.5">
+            <dt className="text-xs text-content-secondary">{key.replace(/([A-Z])/g, ' $1').toLowerCase()}</dt>
             <dd className="text-xs tabular-nums font-semibold text-ink">
               {value === null ? 'not measured' : String(value)}
             </dd>
           </div>
         ))}
       </dl>
-      <p className="mt-2 text-[11px] text-ink-faint">
+      <p className="mt-2 text-[11px] text-content-tertiary">
         {recommendation.generatedBy === 'ai'
           ? 'Observation computed from your stored analytics; wording written by AI from these numbers only.'
           : 'Computed directly from your stored analytics.'}

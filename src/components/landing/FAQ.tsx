@@ -30,7 +30,7 @@ export function FAQ() {
   const [openIndex, setOpenIndex] = useState<number | null>(0);
 
   return (
-    <section id="faq" className="border-t border-line bg-canvas-alt py-24">
+    <section id="faq" className="border-t border-line bg-surface-raised py-24">
       <div className="mx-auto max-w-3xl px-6">
         <div className="text-center reveal">
           <span className="section-eyebrow mx-auto">FAQ</span>
@@ -41,7 +41,7 @@ export function FAQ() {
           {FAQS.map((item, i) => {
             const open = openIndex === i;
             return (
-              <div key={item.q} className="reveal overflow-hidden rounded-2xl border border-line bg-white">
+              <div key={item.q} className="reveal overflow-hidden rounded-2xl border border-line bg-surface">
                 <button
                   type="button"
                   onClick={() => setOpenIndex(open ? null : i)}
@@ -49,9 +49,9 @@ export function FAQ() {
                   aria-expanded={open}
                 >
                   <span className="font-display text-base font-semibold text-ink">{item.q}</span>
-                  <ChevronDown className={`h-4 w-4 shrink-0 text-ink-soft transition-transform ${open ? 'rotate-180' : ''}`} />
+                  <ChevronDown className={`h-4 w-4 shrink-0 text-content-secondary transition-transform ${open ? 'rotate-180' : ''}`} />
                 </button>
-                {open && <p className="px-5 pb-5 text-sm leading-relaxed text-ink-soft">{item.a}</p>}
+                {open && <p className="px-5 pb-5 text-sm leading-relaxed text-content-secondary">{item.a}</p>}
               </div>
             );
           })}

@@ -60,7 +60,7 @@ export default async function ApprovalsPage({ searchParams }: { searchParams: { 
             <Link
               href="/dashboard/approvals"
               className={`rounded-full px-4 py-2 text-xs font-semibold ${
-                brandId ? 'border border-line text-ink-soft' : 'bg-ink text-canvas'
+                brandId ? 'border border-line text-content-secondary' : 'bg-ink text-canvas'
               }`}
             >
               All brands
@@ -70,7 +70,7 @@ export default async function ApprovalsPage({ searchParams }: { searchParams: { 
                 key={brand.id}
                 href={`/dashboard/approvals?brand=${brand.id}`}
                 className={`rounded-full px-4 py-2 text-xs font-semibold ${
-                  brand.id === brandId ? 'bg-ink text-canvas' : 'border border-line text-ink-soft'
+                  brand.id === brandId ? 'bg-ink text-canvas' : 'border border-line text-content-secondary'
                 }`}
               >
                 {brand.name}
@@ -91,7 +91,7 @@ function Header({ children }: { children?: React.ReactNode }) {
       <div>
         <p className="section-eyebrow">Approvals</p>
         <h1 className="mt-3 font-display text-3xl font-bold">Review queue</h1>
-        <p className="mt-1 text-sm text-ink-soft">
+        <p className="mt-1 text-sm text-content-secondary">
           Generated copy that tripped a factuality check waits here. Blocking findings must be reviewed before the
           content can be published.
         </p>

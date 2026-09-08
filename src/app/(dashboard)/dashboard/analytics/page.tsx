@@ -71,7 +71,7 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: { 
                 key={brand.id}
                 href={`/dashboard/analytics?brand=${brand.id}`}
                 className={`rounded-full px-4 py-2 text-xs font-semibold ${
-                  brand.id === brandId ? 'bg-ink text-canvas' : 'border border-line text-ink-soft'
+                  brand.id === brandId ? 'bg-ink text-canvas' : 'border border-line text-content-secondary'
                 }`}
               >
                 {brand.name}
@@ -82,25 +82,25 @@ export default async function AnalyticsPage({ searchParams }: { searchParams: { 
       </Header>
 
       {(!sourceConfigured || !ingestionConfigured) && (
-        <div role="note" className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">
+        <div role="note" className="rounded-2xl border border-warning bg-warning-subtle px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-warning">
             Analytics collection is not running
           </p>
-          <ul className="mt-2 space-y-1 text-sm leading-6 text-ink-soft">
+          <ul className="mt-2 space-y-1 text-sm leading-6 text-content-secondary">
             {!sourceConfigured && (
               <li>
                 No analytics source is configured — set{' '}
-                <code className="rounded bg-white px-1 py-0.5 font-mono text-[11px]">META_APP_ID</code>,{' '}
-                <code className="rounded bg-white px-1 py-0.5 font-mono text-[11px]">META_APP_SECRET</code> and{' '}
-                <code className="rounded bg-white px-1 py-0.5 font-mono text-[11px]">TOKEN_ENCRYPTION_KEY</code>.
+                <code className="rounded bg-surface px-1 py-0.5 font-mono text-[11px]">META_APP_ID</code>,{' '}
+                <code className="rounded bg-surface px-1 py-0.5 font-mono text-[11px]">META_APP_SECRET</code> and{' '}
+                <code className="rounded bg-surface px-1 py-0.5 font-mono text-[11px]">TOKEN_ENCRYPTION_KEY</code>.
               </li>
             )}
             {!ingestionConfigured && (
               <li>
                 Nothing triggers ingestion — set{' '}
-                <code className="rounded bg-white px-1 py-0.5 font-mono text-[11px]">CRON_SECRET</code> and point a
+                <code className="rounded bg-surface px-1 py-0.5 font-mono text-[11px]">CRON_SECRET</code> and point a
                 scheduler at{' '}
-                <code className="rounded bg-white px-1 py-0.5 font-mono text-[11px]">/api/cron/analytics</code>.
+                <code className="rounded bg-surface px-1 py-0.5 font-mono text-[11px]">/api/cron/analytics</code>.
               </li>
             )}
           </ul>
@@ -118,7 +118,7 @@ function Header({ children }: { children?: React.ReactNode }) {
       <div>
         <p className="section-eyebrow">Insights</p>
         <h1 className="mt-3 font-display text-3xl font-bold">Analytics</h1>
-        <p className="mt-1 max-w-2xl text-sm text-ink-soft">
+        <p className="mt-1 max-w-2xl text-sm text-content-secondary">
           What the platforms actually measured, and what OwBrand recommends because of it. Anything unmeasured is
           shown as such rather than as a zero.
         </p>

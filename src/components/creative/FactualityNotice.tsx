@@ -21,12 +21,12 @@ export function FactualityNotice({ factuality }: { factuality?: Factuality }) {
     <div
       role={blocked ? 'alert' : 'note'}
       className={`mt-4 rounded-xl border px-4 py-3 ${
-        blocked ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'
+        blocked ? 'border-danger bg-danger-subtle' : 'border-warning bg-warning-subtle'
       }`}
     >
       <p
         className={`flex items-center gap-2 text-xs font-semibold uppercase tracking-wide ${
-          blocked ? 'text-red-700' : 'text-amber-800'
+          blocked ? 'text-danger' : 'text-warning'
         }`}
       >
         {blocked ? (
@@ -39,7 +39,7 @@ export function FactualityNotice({ factuality }: { factuality?: Factuality }) {
 
       <ul className="mt-2 space-y-2">
         {factuality.findings.map((finding, i) => (
-          <li key={i} className="text-xs leading-5 text-ink-soft">
+          <li key={i} className="text-xs leading-5 text-content-secondary">
             <span className="font-semibold text-ink">{finding.category.replace(/_/g, ' ')}:</span>{' '}
             <span className="font-medium">“{finding.excerpt}”</span> — {finding.explanation}
           </li>
@@ -47,7 +47,7 @@ export function FactualityNotice({ factuality }: { factuality?: Factuality }) {
       </ul>
 
       {blocked && (
-        <p className="mt-3 text-xs text-ink-soft">
+        <p className="mt-3 text-xs text-content-secondary">
           This copy cannot be published until someone clears the findings in{' '}
           <Link href="/dashboard/approvals" className="font-semibold text-ink underline">
             Approvals
@@ -69,7 +69,7 @@ export function GenerationMeta({
 }) {
   if (!generation) return null;
   return (
-    <p className="mt-4 text-[11px] text-ink-faint">
+    <p className="mt-4 text-[11px] text-content-tertiary">
       {generation.provider} · {generation.model}
       {generation.attempts > 1 && ` · ${generation.attempts} attempts`}
       {generation.viaFallback && ' · served by fallback provider'}

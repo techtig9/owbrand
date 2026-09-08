@@ -9,6 +9,52 @@
  * Vitest suites instead.
  */
 const { chromium } = require('playwright-core');
+const fs = require('node:fs');
+const path = require('node:path');
+
+/**
+ * axe-core, injected into each page.
+ *
+ * Read from disk rather than loaded from a CDN: the app runs a strict CSP that
+ * blocks third-party scripts, so `addScriptTag` with a URL would be blocked
+ * exactly like any other injected script.
+ */
+const AXE_SOURCE = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'node_modules', 'axe-core', 'axe.min.js'),
+  'utf8',
+);
+
+/**
+ * Runs axe against the current page and records one assertion per page.
+ *
+ * Scoped to serious and critical violations. Axe's minor and moderate tiers
+ * include stylistic advice that is not a WCAG failure, and gating on those
+ * trains everyone to ignore the whole check.
+ */
+async function auditAccessibility(page, label, record) {
+  await page.evaluate(AXE_SOURCE);
+
+  const violations = await page.evaluate(async () => {
+    const run = await window.axe.run(document, {
+      runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] },
+    });
+    return run.violations.map((violation) => ({
+      id: violation.id,
+      impact: violation.impact,
+      nodes: violation.nodes.length,
+    }));
+  });
+
+  const blocking = violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
+
+  record(
+    `a11y ${label}: no serious or critical WCAG violations`,
+    blocking.length === 0,
+    blocking.map((v) => `${v.id} (${v.impact}, ${v.nodes} nodes)`).join(' | '),
+  );
+
+  return blocking;
+}
 
 /*
  * Requires a running production build:
@@ -546,12 +592,42 @@ function record(name, passed, detail = '') {
     alertText.trim().slice(0, 80),
   );
 
-  // An unknown code must not be reflected verbatim.
+  /*
+   * An unknown code must not be reflected as live markup.
+   *
+   * The assertion checks the RENDERED DOM, not the raw HTML. Once the root
+   * layout became dynamic (it reads the CSP nonce), Next legitimately includes
+   * the request's own searchParams in its RSC flight payload — with `<` escaped
+   * as \u003c, inside a JSON string, inside a script. A substring check over
+   * the whole document therefore reports a false positive on a payload that
+   * cannot execute. What matters is that no element is created from it, no
+   * dialog fires, and the visible message is our own fixed copy.
+   */
+  let dialogFired = false;
+  const onDialog = async (dialog) => {
+    dialogFired = true;
+    await dialog.dismiss();
+  };
+  page.on('dialog', onDialog);
+
   await page.goto(`${BASE}/login?error=<img src=x onerror=alert(1)>`, { waitUntil: 'networkidle' });
-  const reflected = await page.content();
+  await page.waitForTimeout(300);
+
+  const injection = await page.evaluate(() => ({
+    injectedElements: document.querySelectorAll('img[onerror], img[src="x"]').length,
+    rawTagInBody: document.body.innerHTML.includes('<img src=x onerror'),
+    visibleAlert: (document.querySelector('[role="alert"]')?.textContent || '').trim(),
+  }));
+
+  page.off('dialog', onDialog);
+
+  record('login: an attacker-supplied error code creates no element', injection.injectedElements === 0);
+  record('login: an attacker-supplied error code is not injected as markup', injection.rawTagInBody === false);
+  record('login: an attacker-supplied error code executes nothing', dialogFired === false);
   record(
-    'login: does not reflect an attacker-supplied error code',
-    !reflected.includes('onerror=alert(1)'),
+    'login: an unknown error code falls back to our own copy',
+    /did not complete|could not/i.test(injection.visibleAlert),
+    injection.visibleAlert.slice(0, 80),
   );
 
   /* ---------------------------------------------------------------- *
@@ -561,11 +637,144 @@ function record(name, passed, detail = '') {
   record('404: renders the custom not-found page', (await page.getByText(/can.t find that page/i).count()) > 0);
 
   /* ---------------------------------------------------------------- *
+   * Accessibility: automated WCAG audit on the reachable pages
+   *
+   * Automated tooling catches roughly a third of WCAG issues, so this is a
+   * floor rather than a certificate — but it catches exactly the regressions a
+   * token or shell change introduces: lost contrast, an unlabelled control, a
+   * broken landmark.
+   * ---------------------------------------------------------------- */
+  await page.setViewportSize({ width: 1280, height: 900 });
+
+  for (const [label, target] of [
+    ['landing', '/'],
+    ['login', '/login'],
+    ['signup', '/signup'],
+    ['forgot-password', '/forgot-password'],
+    ['404', '/definitely-not-a-page'],
+  ]) {
+    await page.goto(`${BASE}${target}`, { waitUntil: 'networkidle' });
+    await auditAccessibility(page, label, record);
+  }
+
+  /* ---------------------------------------------------------------- *
+   * Skip link — WCAG 2.4.1 Bypass Blocks
+   *
+   * A skip link that stays invisible when focused fails the requirement it
+   * exists to satisfy, so visibility on focus is asserted, not just presence.
+   * ---------------------------------------------------------------- */
+  await page.goto(`${BASE}/login`, { waitUntil: 'networkidle' });
+  await page.keyboard.press('Tab');
+
+  const skipLink = await page.evaluate(() => {
+    const active = document.activeElement;
+    if (!active) return null;
+    const rect = active.getBoundingClientRect();
+    return {
+      text: (active.textContent || '').trim(),
+      visible: rect.width > 0 && rect.height > 0 && rect.top >= 0,
+    };
+  });
+
+  record(
+    'a11y: the first tab stop is a skip link',
+    Boolean(skipLink && /skip to main/i.test(skipLink.text)),
+    skipLink ? skipLink.text : 'no focused element',
+  );
+  record(
+    'a11y: the skip link becomes visible when focused',
+    Boolean(skipLink && skipLink.visible),
+    skipLink ? `visible=${skipLink.visible}` : 'n/a',
+  );
+
+  /* ---------------------------------------------------------------- *
+   * Focus indicator — WCAG 2.4.13 Focus Appearance
+   * ---------------------------------------------------------------- */
+  const focusRing = await page.evaluate(() => {
+    const input = document.querySelector('input');
+    if (!input) return null;
+    input.focus();
+    const style = getComputedStyle(input);
+    return { outlineWidth: style.outlineWidth, outlineStyle: style.outlineStyle, boxShadow: style.boxShadow };
+  });
+
+  record(
+    'a11y: a focused input has a visible indicator',
+    Boolean(
+      focusRing &&
+        ((focusRing.outlineStyle !== 'none' && parseFloat(focusRing.outlineWidth) >= 2) ||
+          (focusRing.boxShadow && focusRing.boxShadow !== 'none')),
+    ),
+    focusRing ? `outline ${focusRing.outlineWidth} ${focusRing.outlineStyle}` : 'no input found',
+  );
+
+  /* ---------------------------------------------------------------- *
+   * Theme: tokens resolve, and the choice survives a reload
+   * ---------------------------------------------------------------- */
+  await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+
+  const lightTokens = await page.evaluate(() => {
+    const style = getComputedStyle(document.documentElement);
+    return {
+      bg: style.getPropertyValue('--color-bg').trim(),
+      text: style.getPropertyValue('--color-text').trim(),
+      primary: style.getPropertyValue('--color-primary').trim(),
+    };
+  });
+
+  record(
+    'theme: design tokens resolve on the page',
+    Boolean(lightTokens.bg && lightTokens.text && lightTokens.primary),
+    JSON.stringify(lightTokens),
+  );
+
+  // The spec mandates a deep indigo primary; a stale coral value would mean
+  // the token layer had not actually taken effect.
+  record(
+    'theme: the primary is the indigo the spec mandates',
+    lightTokens.primary.toLowerCase().replace(/\s/g, '') === '#4338ca',
+    lightTokens.primary,
+  );
+
+  await page.evaluate(() => {
+    localStorage.setItem('owbrand-theme', 'dark');
+  });
+  await page.reload({ waitUntil: 'networkidle' });
+
+  const darkState = await page.evaluate(() => {
+    const style = getComputedStyle(document.documentElement);
+    return {
+      attribute: document.documentElement.getAttribute('data-theme'),
+      bg: style.getPropertyValue('--color-bg').trim(),
+    };
+  });
+
+  // The inline theme script must run BEFORE first paint, or every dark-theme
+  // user sees a white flash on every server-rendered navigation.
+  record(
+    'theme: a stored dark choice is applied before hydration',
+    darkState.attribute === 'dark',
+    `data-theme=${darkState.attribute}`,
+  );
+  record(
+    'theme: dark tokens actually take effect',
+    darkState.bg.toLowerCase() === '#0e1016',
+    `--color-bg=${darkState.bg}`,
+  );
+
+  // The audit must pass in dark mode too — a theme is not finished until its
+  // contrast is verified, and dark is where hand-tuned palettes fail.
+  await auditAccessibility(page, 'landing (dark)', record);
+
+  await page.evaluate(() => localStorage.removeItem('owbrand-theme'));
+  await page.reload({ waitUntil: 'networkidle' });
+
+  /* ---------------------------------------------------------------- *
    * Responsive: no horizontal overflow at the spec's breakpoints
    * ---------------------------------------------------------------- */
   for (const width of [320, 375, 390, 430, 768, 1024, 1280, 1440, 1920]) {
     await page.setViewportSize({ width, height: 900 });
-    for (const path of ['/', '/login', '/signup']) {
+    for (const path of ['/', '/login', '/signup', '/forgot-password', '/definitely-not-a-page']) {
       await page.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth,

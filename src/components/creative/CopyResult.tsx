@@ -54,15 +54,15 @@ function Variation({
   }
 
   return (
-    <article className="rounded-2xl border border-line bg-white p-5">
+    <article className="rounded-2xl border border-line bg-surface p-5">
       <div className="flex items-start justify-between gap-3">
         {total > 1 && (
-          <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Version {index + 1}</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-content-tertiary">Version {index + 1}</p>
         )}
         <button
           type="button"
           onClick={() => void copyToClipboard()}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-xs font-semibold text-ink-soft hover:bg-canvas-alt"
+          className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-xs font-semibold text-content-secondary hover:bg-surface-raised"
         >
           {copied ? (
             <Check className="h-3.5 w-3.5" aria-hidden="true" />
@@ -90,13 +90,13 @@ function Variation({
       )}
 
       {variation.hashtags.length > 0 && (
-        <p className="mt-3 text-xs text-ink-faint">
+        <p className="mt-3 text-xs text-content-tertiary">
           {variation.hashtags.map((tag) => (tag.startsWith('#') ? tag : `#${tag}`)).join(' ')}
         </p>
       )}
 
       {variation.rationale && (
-        <p className="mt-4 border-t border-line pt-3 text-xs leading-5 text-ink-soft">
+        <p className="mt-4 border-t border-line pt-3 text-xs leading-5 text-content-secondary">
           <span className="font-semibold text-ink">Why this works:</span> {variation.rationale}
         </p>
       )}

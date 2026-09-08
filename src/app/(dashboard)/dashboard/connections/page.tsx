@@ -45,34 +45,34 @@ export default async function ConnectionsPage({
       <div>
         <p className="section-eyebrow">Connections</p>
         <h1 className="mt-3 font-display text-3xl font-bold">Connected accounts</h1>
-        <p className="mt-1 max-w-2xl text-sm text-ink-soft">
+        <p className="mt-1 max-w-2xl text-sm text-content-secondary">
           OwBrand publishes and schedules through these. Nothing is posted anywhere you have not connected.
         </p>
       </div>
 
       {errorMessage && (
-        <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4">
-          <p className="text-sm font-semibold text-red-700">{errorMessage}</p>
+        <div role="alert" className="rounded-2xl border border-danger bg-danger-subtle px-5 py-4">
+          <p className="text-sm font-semibold text-danger">{errorMessage}</p>
         </div>
       )}
 
       {/* An unrecognised code means a hand-edited or stale URL. Say so rather
           than echoing whatever was passed. */}
       {searchParams.social_error && !errorMessage && (
-        <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4">
-          <p className="text-sm font-semibold text-red-700">
+        <div role="alert" className="rounded-2xl border border-danger bg-danger-subtle px-5 py-4">
+          <p className="text-sm font-semibold text-danger">
             That connection attempt did not complete. Start the connection again.
           </p>
         </div>
       )}
 
       {showConnected && (
-        <div role="status" className="rounded-2xl border border-mint-300 bg-mint-50 px-5 py-4">
+        <div role="status" className="rounded-2xl border border-success bg-success-subtle px-5 py-4">
           <p className="text-sm font-semibold text-ink">
             Connected {connectedCount} account{connectedCount === 1 ? '' : 's'}.
           </p>
           {searchParams.social_notice === 'no_instagram_business_account' && (
-            <p className="mt-1 text-xs leading-5 text-ink-soft">
+            <p className="mt-1 text-xs leading-5 text-content-secondary">
               No Instagram business account was linked to those Pages, so only Facebook publishing is available.
               Link one in the Meta Business Suite, then reconnect.
             </p>
@@ -82,7 +82,7 @@ export default async function ConnectionsPage({
 
       <ConnectionsPanel brandId={brandId} />
 
-      <p className="text-xs text-ink-faint">
+      <p className="text-xs text-content-tertiary">
         Looking for your queue?{' '}
         <Link href="/dashboard/scheduler" className="font-semibold text-ink underline">
           Scheduler

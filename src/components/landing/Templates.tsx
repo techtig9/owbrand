@@ -4,18 +4,18 @@ const CATEGORIES = [
   'Blog', 'Landing Page', 'SaaS', 'E-commerce', 'Agency', 'Startup', 'Education', 'Healthcare',
 ];
 
-const SWATCHES = ['bg-blush-100', 'bg-mint-100', 'bg-lavender-200', 'bg-canvas-alt'];
+const SWATCHES = ['bg-primary-subtle', 'bg-success-subtle', 'bg-info-subtle', 'bg-surface-raised'];
 
 export function Templates() {
   return (
-    <section id="templates" className="border-t border-line bg-canvas-alt py-24">
+    <section id="templates" className="border-t border-line bg-surface-raised py-24">
       <div className="mx-auto max-w-6xl px-6">
         <div className="flex flex-wrap items-end justify-between gap-4 reveal">
           <div>
             <span className="section-eyebrow">Templates & themes</span>
             <h2 className="mt-4 text-4xl font-bold tracking-tight sm:text-5xl">Start further ahead.</h2>
           </div>
-          <p className="max-w-sm text-sm text-ink-soft">
+          <p className="max-w-sm text-sm text-content-secondary">
             300+ templates across 20 categories, all restyled by owbrand&apos;s AI to fit your brand.
           </p>
         </div>

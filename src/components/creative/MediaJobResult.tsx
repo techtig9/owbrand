@@ -73,52 +73,52 @@ export function MediaJobResult({ initial, kind }: { initial: MediaJobResponse; k
 
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl border border-line bg-white p-5">
+      <div className="rounded-2xl border border-line bg-surface p-5">
         <div className="flex flex-wrap items-center gap-3">
           <StateBadge state={job.state} />
-          <span className="text-xs text-ink-faint">Job {initial.jobId.slice(0, 8)}</span>
+          <span className="text-xs text-content-tertiary">Job {initial.jobId.slice(0, 8)}</span>
           {initial.deduplicated && (
-            <span className="rounded-full bg-canvas-alt px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-ink-soft">
+            <span className="rounded-full bg-surface-raised px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-content-secondary">
               already requested
             </span>
           )}
-          {initial.provider && <span className="text-xs text-ink-faint">{initial.provider}</span>}
+          {initial.provider && <span className="text-xs text-content-tertiary">{initial.provider}</span>}
         </div>
 
         {typeof job.progress === 'number' && job.state !== 'completed' && (
-          <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-canvas-alt">
+          <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-surface-raised">
             <div className="h-full rounded-full bg-ink transition-all" style={{ width: `${job.progress}%` }} />
           </div>
         )}
 
         {job.error && (
-          <p role="alert" className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+          <p role="alert" className="mt-3 rounded-xl border border-danger bg-danger-subtle px-3 py-2 text-xs text-danger">
             {job.error}
           </p>
         )}
 
         {stalled && (
-          <p className="mt-3 text-xs leading-5 text-ink-soft">
+          <p className="mt-3 text-xs leading-5 text-content-secondary">
             Still rendering after 10 minutes. The job is persisted — reopen this page later, or check the job
             record. The completion worker that finalises long renders is delivered in Phase 3.
           </p>
         )}
 
-        {initial.note && !job.error && <p className="mt-3 text-xs leading-5 text-ink-soft">{initial.note}</p>}
+        {initial.note && !job.error && <p className="mt-3 text-xs leading-5 text-content-secondary">{initial.note}</p>}
       </div>
 
       {kind === 'photo' && assets.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2">
           {assets.map((asset) => (
-            <figure key={asset.assetId} className="overflow-hidden rounded-2xl border border-line bg-white">
+            <figure key={asset.assetId} className="overflow-hidden rounded-2xl border border-line bg-surface">
               {/* Provider-hosted URL. Not next/image: the host is not in the
                   image config allowlist and adding a wildcard remote pattern
                   would be a real security regression. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={asset.url} alt="" className="aspect-square w-full object-cover" />
-              <figcaption className="flex items-center justify-between px-4 py-3 text-xs text-ink-soft">
+              <figcaption className="flex items-center justify-between px-4 py-3 text-xs text-content-secondary">
                 <span>v{asset.version}</span>
-                <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+                <span className="rounded-full bg-warning-subtle px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-warning">
                   pending review
                 </span>
               </figcaption>
@@ -134,7 +134,7 @@ export function MediaJobResult({ initial, kind }: { initial: MediaJobResponse; k
       )}
 
       {initial.requiresReview && (
-        <p className="rounded-xl border border-line bg-canvas-alt px-4 py-3 text-xs leading-5 text-ink-soft">
+        <p className="rounded-xl border border-line bg-surface-raised px-4 py-3 text-xs leading-5 text-content-secondary">
           Generated media lands in review, not straight in your library — a human confirms the product still looks
           like itself. Clear it in{' '}
           <Link href="/dashboard/approvals" className="font-semibold text-ink underline">
@@ -150,20 +150,20 @@ export function MediaJobResult({ initial, kind }: { initial: MediaJobResponse; k
 function StateBadge({ state }: { state: JobState['state'] }) {
   if (state === 'completed') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-mint-50 px-3 py-1 text-xs font-semibold text-mint-600">
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-success-subtle px-3 py-1 text-xs font-semibold text-success">
         <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> Complete
       </span>
     );
   }
   if (state === 'failed') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-700">
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-danger-subtle px-3 py-1 text-xs font-semibold text-danger">
         <XCircle className="h-3.5 w-3.5" aria-hidden="true" /> Failed
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-canvas-alt px-3 py-1 text-xs font-semibold text-ink-soft">
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-raised px-3 py-1 text-xs font-semibold text-content-secondary">
       <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
       {state === 'queued' ? 'Queued' : 'Rendering'}
     </span>

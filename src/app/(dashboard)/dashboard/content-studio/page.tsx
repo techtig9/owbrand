@@ -57,22 +57,22 @@ export default function ContentStudioPage() {
     <div className="mx-auto max-w-4xl space-y-8">
       <div>
         <h1 className="font-display text-2xl font-bold text-ink">Content Studio</h1>
-        <p className="mt-1 text-sm text-ink-soft">Paid plans only — keep your brand&rsquo;s content fresh from here.</p>
+        <p className="mt-1 text-sm text-content-secondary">Paid plans only — keep your brand&rsquo;s content fresh from here.</p>
       </div>
 
       <div className="glass-panel space-y-5 p-6">
         <label className="block">
-          <span className="mb-1.5 block text-xs font-medium text-ink-soft">Brand ID</span>
+          <span className="mb-1.5 block text-xs font-medium text-content-secondary">Brand ID</span>
           <input
             value={brandId}
             onChange={(e) => setBrandId(e.target.value)}
             placeholder="Paste a brand ID from Projects"
-            className="w-full rounded-xl border border-line bg-white px-4 py-2.5 text-sm focus:border-coral-400"
+            className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm focus:border-primary"
           />
         </label>
 
         <div>
-          <p className="mb-2 text-xs font-medium text-ink-soft">Asset type</p>
+          <p className="mb-2 text-xs font-medium text-content-secondary">Asset type</p>
           <div className="flex flex-wrap gap-2">
             {TYPES.map((t) => (
               <button
@@ -80,7 +80,7 @@ export default function ContentStudioPage() {
                 type="button"
                 onClick={() => setType(t.id)}
                 className={`rounded-full border px-3.5 py-1.5 text-xs font-medium ${
-                  type === t.id ? 'border-ink bg-ink text-canvas' : 'border-line bg-white text-ink-soft'
+                  type === t.id ? 'border-ink bg-ink text-canvas' : 'border-line bg-surface text-content-secondary'
                 }`}
               >
                 {t.label} · {t.cost}cr
@@ -90,13 +90,13 @@ export default function ContentStudioPage() {
         </div>
 
         <label className="block">
-          <span className="mb-1.5 block text-xs font-medium text-ink-soft">What do you want?</span>
+          <span className="mb-1.5 block text-xs font-medium text-content-secondary">What do you want?</span>
           <textarea
             value={instruction}
             onChange={(e) => setInstruction(e.target.value)}
             rows={3}
             placeholder="e.g. A cozy autumn product shot for our candle line"
-            className="w-full rounded-xl border border-line bg-white px-4 py-2.5 text-sm focus:border-coral-400"
+            className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm focus:border-primary"
           />
         </label>
 
@@ -109,12 +109,12 @@ export default function ContentStudioPage() {
       {assets.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2">
           {assets.map((asset) => (
-            <div key={asset.id} className="rounded-2xl border border-line bg-white p-5">
-              <span className="rounded-full bg-canvas-alt px-2 py-0.5 text-[10px] font-semibold uppercase text-ink-soft">
+            <div key={asset.id} className="rounded-2xl border border-line bg-surface p-5">
+              <span className="rounded-full bg-surface-raised px-2 py-0.5 text-[10px] font-semibold uppercase text-content-secondary">
                 {asset.type}
               </span>
-              <p className="mt-3 text-sm text-ink-soft">{asset.caption ?? asset.spec?.text ?? 'No caption'}</p>
-              <p className="mt-2 text-[10px] text-ink-faint">Status: {asset.status}</p>
+              <p className="mt-3 text-sm text-content-secondary">{asset.caption ?? asset.spec?.text ?? 'No caption'}</p>
+              <p className="mt-2 text-[10px] text-content-tertiary">Status: {asset.status}</p>
             </div>
           ))}
         </div>

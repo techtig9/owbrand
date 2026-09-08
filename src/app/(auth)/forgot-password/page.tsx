@@ -52,21 +52,21 @@ export default function ForgotPasswordPage() {
       title="Reset your password"
       subtitle="We'll email you a link to set a new one."
       footer={
-        <Link href="/login" className="font-semibold text-coral-600">
+        <Link href="/login" className="font-semibold text-primary">
           Back to login
         </Link>
       }
     >
       {sent ? (
         <div className="flex flex-col items-center text-center">
-          <span className="rounded-2xl bg-mint-50 p-3">
-            <MailCheck className="h-6 w-6 text-mint-600" aria-hidden="true" />
+          <span className="rounded-2xl bg-success-subtle p-3">
+            <MailCheck className="h-6 w-6 text-success" aria-hidden="true" />
           </span>
-          <p className="mt-4 text-sm leading-6 text-ink-soft">
+          <p className="mt-4 text-sm leading-6 text-content-secondary">
             If an account exists for <strong className="text-ink">{email}</strong>, a password reset link is on its
             way. The link expires in one hour.
           </p>
-          <p className="mt-3 text-xs text-ink-faint">Check your spam folder if it hasn&apos;t arrived shortly.</p>
+          <p className="mt-3 text-xs text-content-tertiary">Check your spam folder if it hasn&apos;t arrived shortly.</p>
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>

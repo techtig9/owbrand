@@ -123,7 +123,7 @@ export function ConnectionsPanel({ brandId }: { brandId?: string }) {
     return (
       <div className="space-y-3" role="status" aria-label="Loading connections">
         {[0, 1].map((i) => (
-          <div key={i} className="h-24 animate-pulse rounded-2xl bg-canvas-alt" />
+          <div key={i} className="h-24 animate-pulse rounded-2xl bg-surface-raised" />
         ))}
       </div>
     );
@@ -131,8 +131,8 @@ export function ConnectionsPanel({ brandId }: { brandId?: string }) {
 
   if (error) {
     return (
-      <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-6">
-        <p className="text-sm font-semibold text-red-700">{error}</p>
+      <div role="alert" className="rounded-2xl border border-danger bg-danger-subtle p-6">
+        <p className="text-sm font-semibold text-danger">{error}</p>
         <button type="button" onClick={() => void load()} className="btn-ghost mt-4">
           Try again
         </button>
@@ -146,22 +146,22 @@ export function ConnectionsPanel({ brandId }: { brandId?: string }) {
   return (
     <div className="space-y-6">
       {!oauthConfigured.meta && (
-        <div role="note" className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Not configured</p>
-          <p className="mt-1 text-sm leading-6 text-ink-soft">
+        <div role="note" className="rounded-2xl border border-warning bg-warning-subtle px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-warning">Not configured</p>
+          <p className="mt-1 text-sm leading-6 text-content-secondary">
             This server has no Meta credentials, so accounts cannot be connected. An operator needs to set{' '}
-            <code className="rounded bg-white px-1 py-0.5 font-mono text-[11px]">META_APP_ID</code>,{' '}
-            <code className="rounded bg-white px-1 py-0.5 font-mono text-[11px]">META_APP_SECRET</code> and{' '}
-            <code className="rounded bg-white px-1 py-0.5 font-mono text-[11px]">TOKEN_ENCRYPTION_KEY</code>.
+            <code className="rounded bg-surface px-1 py-0.5 font-mono text-[11px]">META_APP_ID</code>,{' '}
+            <code className="rounded bg-surface px-1 py-0.5 font-mono text-[11px]">META_APP_SECRET</code> and{' '}
+            <code className="rounded bg-surface px-1 py-0.5 font-mono text-[11px]">TOKEN_ENCRYPTION_KEY</code>.
           </p>
         </div>
       )}
 
-      <section className="rounded-2xl border border-line bg-white p-5">
+      <section className="rounded-2xl border border-line bg-surface p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h2 className="font-display text-lg font-semibold text-ink">Facebook &amp; Instagram</h2>
-            <p className="mt-1 max-w-xl text-sm text-ink-soft">
+            <p className="mt-1 max-w-xl text-sm text-content-secondary">
               One authorisation covers both. OwBrand connects each Facebook Page you administer, plus any
               Instagram business account linked to one.
             </p>
@@ -182,7 +182,7 @@ export function ConnectionsPanel({ brandId }: { brandId?: string }) {
         </div>
 
         {accounts.length === 0 ? (
-          <p className="mt-5 rounded-xl border border-dashed border-line bg-canvas-alt px-4 py-6 text-center text-sm text-ink-faint">
+          <p className="mt-5 rounded-xl border border-dashed border-line bg-surface-raised px-4 py-6 text-center text-sm text-content-tertiary">
             No accounts connected yet. Publishing and scheduling need at least one.
           </p>
         ) : (
@@ -195,7 +195,7 @@ export function ConnectionsPanel({ brandId }: { brandId?: string }) {
                       {account.accountName ?? account.label}
                       <StatusBadge account={account} />
                     </p>
-                    <p className="mt-0.5 text-xs text-ink-faint">
+                    <p className="mt-0.5 text-xs text-content-tertiary">
                       {account.label} · connected {new Date(account.connectedAt).toLocaleDateString()}
                       {account.expiresInDays !== null &&
                         account.expiresInDays > 0 &&
@@ -203,7 +203,7 @@ export function ConnectionsPanel({ brandId }: { brandId?: string }) {
                     </p>
 
                     {account.missingScopes.length > 0 && (
-                      <p className="mt-2 text-xs leading-5 text-red-700">
+                      <p className="mt-2 text-xs leading-5 text-danger">
                         Missing permission{account.missingScopes.length === 1 ? '' : 's'}:{' '}
                         <span className="font-mono">{account.missingScopes.join(', ')}</span>. Reconnect and grant
                         them to publish.
@@ -211,11 +211,11 @@ export function ConnectionsPanel({ brandId }: { brandId?: string }) {
                     )}
 
                     {account.lastError && account.missingScopes.length === 0 && (
-                      <p className="mt-2 text-xs leading-5 text-ink-soft">{account.lastError}</p>
+                      <p className="mt-2 text-xs leading-5 text-content-secondary">{account.lastError}</p>
                     )}
 
                     {!account.hasStoredCredential && (
-                      <p className="mt-2 text-xs leading-5 text-red-700">
+                      <p className="mt-2 text-xs leading-5 text-danger">
                         No credential is stored for this account, so it cannot publish. Reconnect it.
                       </p>
                     )}
@@ -236,7 +236,7 @@ export function ConnectionsPanel({ brandId }: { brandId?: string }) {
                       type="button"
                       onClick={() => void disconnect(account)}
                       disabled={busy === account.id}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-xs font-semibold text-ink-soft hover:bg-canvas-alt disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-xs font-semibold text-content-secondary hover:bg-surface-raised disabled:opacity-50"
                     >
                       {busy === account.id ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
@@ -252,32 +252,32 @@ export function ConnectionsPanel({ brandId }: { brandId?: string }) {
           </ul>
         )}
 
-        <p className="mt-4 border-t border-line pt-4 text-[11px] leading-5 text-ink-faint">
+        <p className="mt-4 border-t border-line pt-4 text-[11px] leading-5 text-content-tertiary">
           Disconnecting also asks Meta to revoke OwBrand&rsquo;s access, and destroys the stored credential.
           Access tokens are encrypted before they are saved and are only ever decrypted by the publishing worker.
         </p>
       </section>
 
       {metaPlatforms.length > 0 && (
-        <p className="text-xs text-ink-faint">
+        <p className="text-xs text-content-tertiary">
           {metaPlatforms.map((p) => `${p.label}: ${p.connectedCount} connected`).join(' · ')}
         </p>
       )}
 
-      <section className="rounded-2xl border border-line bg-canvas-alt p-5">
+      <section className="rounded-2xl border border-line bg-surface-raised p-5">
         <h2 className="flex items-center gap-2 font-display text-base font-semibold text-ink">
           <Lock className="h-4 w-4" aria-hidden="true" />
           Not available yet
         </h2>
-        <p className="mt-1 text-sm text-ink-soft">
+        <p className="mt-1 text-sm text-content-secondary">
           These platforms are in the product, but OwBrand cannot publish to them. Each needs its own approved
           developer application, so they are listed here rather than offered as a button that fails.
         </p>
         <ul className="mt-4 space-y-2">
           {unavailable.map((platform) => (
-            <li key={platform.platform} className="rounded-xl bg-white px-4 py-3">
+            <li key={platform.platform} className="rounded-xl bg-surface px-4 py-3">
               <p className="text-sm font-semibold text-ink">{platform.label}</p>
-              <p className="mt-0.5 text-xs leading-5 text-ink-soft">{platform.unavailableReason}</p>
+              <p className="mt-0.5 text-xs leading-5 text-content-secondary">{platform.unavailableReason}</p>
             </li>
           ))}
         </ul>
@@ -289,7 +289,7 @@ export function ConnectionsPanel({ brandId }: { brandId?: string }) {
 function StatusBadge({ account }: { account: Account }) {
   if (account.status === 'active') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-mint-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-mint-600">
+      <span className="inline-flex items-center gap-1 rounded-full bg-success-subtle px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-success">
         <CheckCircle2 className="h-3 w-3" aria-hidden="true" /> Ready
       </span>
     );
@@ -297,14 +297,14 @@ function StatusBadge({ account }: { account: Account }) {
 
   if (account.status === 'expiring') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800">
+      <span className="inline-flex items-center gap-1 rounded-full bg-warning-subtle px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-warning">
         <Clock className="h-3 w-3" aria-hidden="true" /> Expiring
       </span>
     );
   }
 
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-red-700">
+    <span className="inline-flex items-center gap-1 rounded-full bg-danger-subtle px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-danger">
       <AlertTriangle className="h-3 w-3" aria-hidden="true" />
       {account.status === 'needs_reconnect' ? 'Reconnect' : 'Error'}
     </span>

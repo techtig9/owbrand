@@ -67,7 +67,7 @@ function LoginForm() {
       footer={
         <>
           Don&apos;t have an account?{' '}
-          <Link href="/signup" className="font-semibold text-coral-600">
+          <Link href="/signup" className="font-semibold text-primary">
             Sign up
           </Link>
         </>
@@ -80,7 +80,7 @@ function LoginForm() {
 
         <div className="flex items-center gap-3 py-1">
           <div className="h-px flex-1 bg-line" />
-          <span className="text-xs text-ink-faint">or</span>
+          <span className="text-xs text-content-tertiary">or</span>
           <div className="h-px flex-1 bg-line" />
         </div>
       </div>
@@ -107,7 +107,7 @@ function LoginForm() {
           placeholder="••••••••"
         />
         <div className="text-right">
-          <Link href="/forgot-password" className="text-xs font-medium text-ink-soft hover:text-coral-600">
+          <Link href="/forgot-password" className="text-xs font-medium text-content-secondary hover:text-primary">
             Forgot password?
           </Link>
         </div>
@@ -131,7 +131,7 @@ export default function LoginPage() {
     <Suspense
       fallback={
         <AuthShell title="Welcome back" subtitle="Log in to keep building your brand." footer={null}>
-          <div className="h-48 animate-pulse rounded-xl bg-canvas-alt" />
+          <div className="h-48 animate-pulse rounded-xl bg-surface-raised" />
         </AuthShell>
       }
     >

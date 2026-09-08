@@ -76,7 +76,7 @@ function Header() {
     <div>
       <p className="section-eyebrow">Creative engine</p>
       <h1 className="mt-3 font-display text-3xl font-bold">Creative Studio</h1>
-      <p className="mt-1 max-w-2xl text-sm text-ink-soft">
+      <p className="mt-1 max-w-2xl text-sm text-content-secondary">
         Copy, reel scripts, product photography and short-form video — each generated against your Brand Brain and
         your approved product facts.
       </p>

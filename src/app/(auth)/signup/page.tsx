@@ -91,21 +91,21 @@ function SignupForm() {
         footer={
           <>
             Wrong address?{' '}
-            <button type="button" onClick={() => setSent(false)} className="font-semibold text-coral-600">
+            <button type="button" onClick={() => setSent(false)} className="font-semibold text-primary">
               Go back
             </button>
           </>
         }
       >
         <div className="flex flex-col items-center text-center">
-          <span className="rounded-2xl bg-mint-50 p-3">
-            <MailCheck className="h-6 w-6 text-mint-600" aria-hidden="true" />
+          <span className="rounded-2xl bg-success-subtle p-3">
+            <MailCheck className="h-6 w-6 text-success" aria-hidden="true" />
           </span>
-          <p className="mt-4 text-sm leading-6 text-ink-soft">
+          <p className="mt-4 text-sm leading-6 text-content-secondary">
             We sent a verification link to <strong className="text-ink">{email}</strong>. Click it to activate your
             account, then you&apos;ll be signed straight in.
           </p>
-          <p className="mt-3 text-xs text-ink-faint">
+          <p className="mt-3 text-xs text-content-tertiary">
             Nothing after a minute? Check your spam folder before trying again.
           </p>
           <Link href="/login" className="btn-primary mt-6 w-full">
@@ -123,7 +123,7 @@ function SignupForm() {
       footer={
         <>
           Already have an account?{' '}
-          <Link href="/login" className="font-semibold text-coral-600">
+          <Link href="/login" className="font-semibold text-primary">
             Log in
           </Link>
         </>
@@ -136,7 +136,7 @@ function SignupForm() {
 
         <div className="flex items-center gap-3 py-1">
           <div className="h-px flex-1 bg-line" />
-          <span className="text-xs text-ink-faint">or</span>
+          <span className="text-xs text-content-tertiary">or</span>
           <div className="h-px flex-1 bg-line" />
         </div>
       </div>
@@ -196,7 +196,7 @@ export default function SignupPage() {
     <Suspense
       fallback={
         <AuthShell title="Create your account" subtitle="Start with 500 free credits." footer={null}>
-          <div className="h-56 animate-pulse rounded-xl bg-canvas-alt" />
+          <div className="h-56 animate-pulse rounded-xl bg-surface-raised" />
         </AuthShell>
       }
     >

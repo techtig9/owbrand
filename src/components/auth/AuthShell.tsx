@@ -21,12 +21,12 @@ export function AuthShell({
 
         <div className="glass-panel p-8">
           <h1 className="font-display text-2xl font-bold text-ink">{title}</h1>
-          <p className="mt-1 text-sm text-ink-soft">{subtitle}</p>
+          <p className="mt-1 text-sm text-content-secondary">{subtitle}</p>
 
           <div className="mt-7">{children}</div>
         </div>
 
-        <p className="mt-6 text-center text-sm text-ink-soft">{footer}</p>
+        <p className="mt-6 text-center text-sm text-content-secondary">{footer}</p>
       </div>
     </div>
   );
@@ -49,7 +49,7 @@ export function FormField({
 
   return (
     <div className="block">
-      <label htmlFor={inputId} className="mb-1.5 block text-xs font-medium text-ink-soft">
+      <label htmlFor={inputId} className="mb-1.5 block text-xs font-medium text-content-secondary">
         {label}
       </label>
       <input
@@ -57,12 +57,12 @@ export function FormField({
         id={inputId}
         aria-describedby={describedBy}
         aria-invalid={error ? true : undefined}
-        className={`w-full rounded-xl border bg-white px-4 py-2.5 text-sm text-ink placeholder:text-ink-faint focus:outline-none ${
-          error ? 'border-red-400 focus:border-red-500' : 'border-line focus:border-coral-400'
+        className={`w-full rounded-xl border bg-surface px-4 py-2.5 text-sm text-ink placeholder:text-content-tertiary focus:outline-none ${
+          error ? 'border-red-400 focus:border-red-500' : 'border-line focus:border-primary'
         }`}
       />
       {hint && (
-        <p id={hintId} className="mt-1.5 text-xs text-ink-faint">
+        <p id={hintId} className="mt-1.5 text-xs text-content-tertiary">
           {hint}
         </p>
       )}
@@ -84,7 +84,7 @@ export function FormError({ message }: { message: string | null }) {
   return (
     <div
       role="alert"
-      className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
+      className="rounded-xl border border-danger bg-danger-subtle px-4 py-3 text-sm font-medium text-danger"
     >
       {message}
     </div>
@@ -97,7 +97,7 @@ export function FormSuccess({ message }: { message: string | null }) {
   return (
     <div
       role="status"
-      className="rounded-xl border border-mint-300 bg-mint-50 px-4 py-3 text-sm font-medium text-mint-600"
+      className="rounded-xl border border-success bg-success-subtle px-4 py-3 text-sm font-medium text-success"
     >
       {message}
     </div>

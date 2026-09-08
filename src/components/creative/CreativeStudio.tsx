@@ -182,7 +182,7 @@ export function CreativeStudio({
         <div className="glass-panel p-6">
           <div className="flex flex-wrap items-center gap-3">
             {brands.length > 1 && (
-              <label className="text-xs font-medium text-ink-soft">
+              <label className="text-xs font-medium text-content-secondary">
                 <span className="mb-1 block">Brand</span>
                 <select
                   value={brandId}
@@ -190,7 +190,7 @@ export function CreativeStudio({
                     setBrandId(event.target.value);
                     setForm((current) => ({ ...current, productId: '', sourceAssetId: '', sourceAssetIds: [] }));
                   }}
-                  className="rounded-xl border border-line bg-white px-4 py-2.5 text-sm text-ink"
+                  className="rounded-xl border border-line bg-surface px-4 py-2.5 text-sm text-ink"
                 >
                   {brands.map((brand) => (
                     <option key={brand.id} value={brand.id}>
@@ -200,7 +200,7 @@ export function CreativeStudio({
                 </select>
               </label>
             )}
-            <p className="text-xs text-ink-soft">{activeTool.blurb}</p>
+            <p className="text-xs text-content-secondary">{activeTool.blurb}</p>
           </div>
 
           {!available && <CapabilityNotice needs={TOOL_CAPABILITY[tool]} />}
@@ -230,7 +230,7 @@ export function CreativeStudio({
           </button>
 
           {/* Say what is missing instead of leaving a dead button. */}
-          {available && missing && <p className="mt-2 text-center text-xs text-ink-faint">{missing}</p>}
+          {available && missing && <p className="mt-2 text-center text-xs text-content-tertiary">{missing}</p>}
         </div>
 
         {result?.tool === 'copy' && <CopyResult result={result.data} />}
@@ -255,7 +255,7 @@ function ToolRail({
 }) {
   return (
     <aside className="glass-panel h-fit p-4">
-      <p className="px-2 text-xs font-semibold uppercase tracking-wide text-ink-faint">Create</p>
+      <p className="px-2 text-xs font-semibold uppercase tracking-wide text-content-tertiary">Create</p>
       <div className="mt-3 space-y-1" role="tablist" aria-label="Creative tools">
         {TOOLS.map(({ id, label, icon: Icon }) => {
           const active = tool === id;
@@ -267,7 +267,7 @@ function ToolRail({
               aria-selected={active}
               onClick={() => onSelect(id)}
               className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors ${
-                active ? 'bg-ink text-canvas' : 'text-ink-soft hover:bg-canvas-alt hover:text-ink'
+                active ? 'bg-ink text-canvas' : 'text-content-secondary hover:bg-surface-raised hover:text-ink'
               }`}
             >
               <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} aria-hidden="true" />
@@ -275,7 +275,7 @@ function ToolRail({
               {/* An unconfigured tool is still selectable — the panel explains
                   what is missing, which is more useful than a hidden feature. */}
               {!capabilities[TOOL_CAPABILITY[id]] && (
-                <span className="rounded-full bg-canvas-alt px-2 py-0.5 text-[9px] font-bold uppercase text-ink-faint">
+                <span className="rounded-full bg-surface-raised px-2 py-0.5 text-[9px] font-bold uppercase text-content-tertiary">
                   setup
                 </span>
               )}
@@ -300,11 +300,11 @@ function CapabilityNotice({ needs }: { needs: 'ai' | 'image' | 'video' }) {
         : 'ANTHROPIC_API_KEY';
 
   return (
-    <div role="note" className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-      <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Not configured</p>
-      <p className="mt-1 text-xs leading-5 text-ink-soft">
+    <div role="note" className="mt-5 rounded-xl border border-warning bg-warning-subtle px-4 py-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-warning">Not configured</p>
+      <p className="mt-1 text-xs leading-5 text-content-secondary">
         This server has no credentials for {label}, so the request would fail. Set{' '}
-        <code className="rounded bg-white px-1 py-0.5 font-mono text-[11px]">{envVars}</code> and restart. Nothing
+        <code className="rounded bg-surface px-1 py-0.5 font-mono text-[11px]">{envVars}</code> and restart. Nothing
         is charged while it is unconfigured.
       </p>
     </div>
@@ -337,7 +337,7 @@ function ToolForm({
               update('sourceAssetId', '');
               update('sourceAssetIds', []);
             }}
-            className="w-full rounded-xl border border-line bg-white px-4 py-2.5 text-sm text-ink"
+            className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm text-ink"
           >
             <option value="">{needsProduct ? 'Select a product…' : 'No specific product'}</option>
             {products.map((product) => (
@@ -347,7 +347,7 @@ function ToolForm({
             ))}
           </select>
           {needsProduct && products.length === 0 && (
-            <p className="mt-1 text-xs text-ink-faint">
+            <p className="mt-1 text-xs text-content-tertiary">
               No products yet — add one under Products, with at least one photo.
             </p>
           )}
@@ -369,7 +369,7 @@ function ToolForm({
               value={form.style}
               onChange={(event) => update('style', event.target.value)}
               placeholder="Editorial, soft daylight, warm neutrals"
-              className="w-full rounded-xl border border-line bg-white px-4 py-2.5 text-sm text-ink"
+              className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm text-ink"
             />
           </Field>
           <Field label="Scene">
@@ -377,7 +377,7 @@ function ToolForm({
               value={form.scene}
               onChange={(event) => update('scene', event.target.value)}
               placeholder="On a travertine ledge beside a linen towel"
-              className="w-full rounded-xl border border-line bg-white px-4 py-2.5 text-sm text-ink"
+              className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm text-ink"
             />
           </Field>
         </>
@@ -405,7 +405,7 @@ function ToolForm({
               value={form.style}
               onChange={(event) => update('style', event.target.value)}
               placeholder="Fast cuts, handheld, natural light"
-              className="w-full rounded-xl border border-line bg-white px-4 py-2.5 text-sm text-ink"
+              className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm text-ink"
             />
           </Field>
           <Field label="Goal">
@@ -413,7 +413,7 @@ function ToolForm({
               value={form.goal}
               onChange={(event) => update('goal', event.target.value)}
               placeholder="Drive first-time trial of the serum"
-              className="w-full rounded-xl border border-line bg-white px-4 py-2.5 text-sm text-ink"
+              className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm text-ink"
             />
           </Field>
         </>
@@ -431,9 +431,9 @@ function ToolForm({
                 ? 'A 15-second launch reel for the vitamin C serum. Premium feel, strong first-second hook, clear CTA.'
                 : 'A launch announcement for the vitamin C serum. Confident, not shouty. One clear benefit.'
             }
-            className="w-full rounded-xl border border-line bg-white px-4 py-3 text-sm leading-6 text-ink"
+            className="w-full rounded-xl border border-line bg-surface px-4 py-3 text-sm leading-6 text-ink"
           />
-          <p className="mt-1 text-right text-[11px] text-ink-faint tabular-nums">
+          <p className="mt-1 text-right text-[11px] text-content-tertiary tabular-nums">
             {form.instruction.length}/1500
           </p>
         </Field>
@@ -462,7 +462,7 @@ function AssetPicker({
 }) {
   if (assets.length === 0) {
     return (
-      <p className="rounded-xl border border-dashed border-line bg-canvas-alt px-4 py-6 text-center text-xs text-ink-faint">
+      <p className="rounded-xl border border-dashed border-line bg-surface-raised px-4 py-6 text-center text-xs text-content-tertiary">
         No assets on this product yet. Upload a product photo first.
       </p>
     );
@@ -484,16 +484,16 @@ function AssetPicker({
           >
             {asset.url ? (
               /* eslint-disable-next-line @next/next/no-img-element */
-              <img src={asset.url} alt="" className="aspect-square w-full bg-canvas-alt object-cover" />
+              <img src={asset.url} alt="" className="aspect-square w-full bg-surface-raised object-cover" />
             ) : (
-              <span className="grid aspect-square w-full place-items-center bg-canvas-alt text-[10px] text-ink-faint">
+              <span className="grid aspect-square w-full place-items-center bg-surface-raised text-[10px] text-content-tertiary">
                 {asset.type}
               </span>
             )}
           </button>
         );
       })}
-      {multiple && <p className="col-span-4 text-[11px] text-ink-faint">{selected.length}/6 selected</p>}
+      {multiple && <p className="col-span-4 text-[11px] text-content-tertiary">{selected.length}/6 selected</p>}
     </div>
   );
 }
@@ -510,7 +510,7 @@ function SettingsPanel({
 }) {
   return (
     <aside className="glass-panel h-fit space-y-4 p-5">
-      <p className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Settings</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-content-tertiary">Settings</p>
 
       {tool === 'copy' && (
         <>
@@ -518,7 +518,7 @@ function SettingsPanel({
             <select
               value={form.kind}
               onChange={(event) => update('kind', event.target.value as CreativeFormState['kind'])}
-              className="w-full rounded-xl border border-line bg-white px-3 py-2 text-sm text-ink"
+              className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink"
             >
               {COPY_KINDS.map((kind) => (
                 <option key={kind} value={kind}>
@@ -533,7 +533,7 @@ function SettingsPanel({
               onChange={(event) => update('platform', event.target.value)}
               maxLength={40}
               placeholder="instagram"
-              className="w-full rounded-xl border border-line bg-white px-3 py-2 text-sm text-ink"
+              className="w-full rounded-xl border border-line bg-surface px-3 py-2 text-sm text-ink"
             />
           </Field>
           <Field label={`Versions: ${form.variations}`}>
@@ -600,7 +600,7 @@ function SettingsPanel({
         </>
       )}
 
-      <p className="border-t border-line pt-4 text-[11px] leading-5 text-ink-faint">
+      <p className="border-t border-line pt-4 text-[11px] leading-5 text-content-tertiary">
         Every generation is screened against your brand rules and approved product facts. Anything that asserts a
         claim you have not verified is held for review rather than published.
       </p>
@@ -611,7 +611,7 @@ function SettingsPanel({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-xs font-medium text-ink-soft">{label}</span>
+      <span className="mb-1.5 block text-xs font-medium text-content-secondary">{label}</span>
       {children}
     </label>
   );
@@ -632,7 +632,7 @@ function Chip({
       aria-pressed={active}
       onClick={onClick}
       className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
-        active ? 'bg-ink text-canvas' : 'border border-line text-ink-soft hover:bg-canvas-alt'
+        active ? 'bg-ink text-canvas' : 'border border-line text-content-secondary hover:bg-surface-raised'
       }`}
     >
       {children}

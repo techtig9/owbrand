@@ -59,7 +59,7 @@ export default async function WebsitePage({ searchParams }: { searchParams: { br
                 key={brand.id}
                 href={`/dashboard/website?brand=${brand.id}`}
                 className={`rounded-full px-4 py-2 text-xs font-semibold ${
-                  brand.id === brandId ? 'bg-ink text-canvas' : 'border border-line text-ink-soft'
+                  brand.id === brandId ? 'bg-ink text-canvas' : 'border border-line text-content-secondary'
                 }`}
               >
                 {brand.name}
@@ -80,7 +80,7 @@ function Header({ children }: { children?: React.ReactNode }) {
       <div>
         <p className="section-eyebrow">Website</p>
         <h1 className="mt-3 font-display text-3xl font-bold">Website builder</h1>
-        <p className="mt-1 text-sm text-ink-soft">
+        <p className="mt-1 text-sm text-content-secondary">
           Edit the site OwBrand generated from your Brand Brain. Changes save as you go.
         </p>
       </div>

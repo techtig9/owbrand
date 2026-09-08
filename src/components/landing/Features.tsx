@@ -35,7 +35,7 @@ const FEATURES = [
 
 export function Features() {
   return (
-    <section id="features" className="border-t border-line bg-canvas-alt py-24">
+    <section id="features" className="border-t border-line bg-surface-raised py-24">
       <div className="mx-auto max-w-6xl px-6">
         <div className="max-w-xl reveal">
           <span className="section-eyebrow">What owbrand does</span>
@@ -47,9 +47,9 @@ export function Features() {
         <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map((f) => (
             <div key={f.title} className="glass-panel reveal p-6">
-              <f.icon className="h-6 w-6 text-coral-500" strokeWidth={1.75} />
+              <f.icon className="h-6 w-6 text-primary" strokeWidth={1.75} />
               <h3 className="mt-4 font-display text-lg font-semibold text-ink">{f.title}</h3>
-              <p className="mt-2 text-sm leading-relaxed text-ink-soft">{f.body}</p>
+              <p className="mt-2 text-sm leading-relaxed text-content-secondary">{f.body}</p>
             </div>
           ))}
         </div>

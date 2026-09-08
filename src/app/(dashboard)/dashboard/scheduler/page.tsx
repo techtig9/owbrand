@@ -53,13 +53,13 @@ export default async function SchedulerPage({ searchParams }: { searchParams: { 
       <Header />
 
       {!workerConfigured && (
-        <div role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Publishing is paused</p>
-          <p className="mt-1 text-sm leading-6 text-ink-soft">
+        <div role="alert" className="rounded-2xl border border-warning bg-warning-subtle px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-warning">Publishing is paused</p>
+          <p className="mt-1 text-sm leading-6 text-content-secondary">
             The publishing worker is not configured on this server, so scheduling is disabled and nothing queued
             would be sent. An operator needs to set{' '}
-            <code className="rounded bg-white px-1 py-0.5 font-mono text-[11px]">CRON_SECRET</code> and point a
-            scheduler at <code className="rounded bg-white px-1 py-0.5 font-mono text-[11px]">/api/cron/publish</code>.
+            <code className="rounded bg-surface px-1 py-0.5 font-mono text-[11px]">CRON_SECRET</code> and point a
+            scheduler at <code className="rounded bg-surface px-1 py-0.5 font-mono text-[11px]">/api/cron/publish</code>.
           </p>
         </div>
       )}
@@ -75,7 +75,7 @@ function Header() {
       <div>
         <p className="section-eyebrow">Scheduler</p>
         <h1 className="mt-3 font-display text-3xl font-bold">Publishing queue</h1>
-        <p className="mt-1 text-sm text-ink-soft">
+        <p className="mt-1 text-sm text-content-secondary">
           Everything queued, published, or failed — with what the platform actually said.
         </p>
       </div>

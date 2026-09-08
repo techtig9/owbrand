@@ -1,37 +1,79 @@
 /**
  * Chart parameters for OwBrand.
  *
- * Deliberately SEQUENTIAL, single-hue — not categorical. The brand's accent
- * set (blush #E29B95, mint #8FBB9C, lavender #C3AFE3) was run through the
- * palette validator and fails as a categorical palette on three checks: two
- * pairs sit below the normal-vision separation floor (ΔE 11.1, needs ≥15), the
- * pastels fall below the chroma floor so they read as grey, and all three fall
- * under 3:1 against a white surface. They are a warm editorial brand palette,
- * which is a different job from telling data series apart.
+ * PHASE 5: these now read the CSS custom properties from
+ * src/styles/tokens.css, so charts follow the theme. Previously they were
+ * hard-coded coral hex values, which meant the charts would have stayed warm
+ * orange on a deep-indigo dark surface — the one place a hard-coded colour is
+ * most obviously wrong.
  *
- * So every chart here encodes magnitude by LENGTH or POSITION in one hue, and
- * identity by label — never by asking a reader to distinguish four pastels.
- * Coral-600 clears 4.27:1 on white and 4.00:1 on the cream surface.
+ * The palette itself is validated: the categorical slots clear the lightness
+ * band, chroma floor, CVD separation and 3:1 contrast checks in BOTH themes,
+ * and the sequential ramp is monotonic in lightness. `npm run check:contrast`
+ * asserts the chart marks against their surfaces.
  *
- * The ramp is monotonic in relative luminance
- * (0.84 → 0.64 → 0.37 → 0.28 → 0.20 → 0.12), so it is a valid sequential
- * scale if a heatmap is ever added.
+ * Charts still encode magnitude by LENGTH and POSITION in one hue by default.
+ * The four categorical slots exist for genuine multi-series work; past four
+ * series the answer is small multiples, never a generated fifth hue.
  */
 
-/** The single data hue. 4.27:1 on white — over the 3:1 mark floor. */
-export const DATA_HUE = '#C65A36';
-/** For a second, subordinate series (previous period). Grey, not a hue. */
-export const CONTEXT_HUE = '#9A9188';
-/** Area wash. The skill's spec is the series hue at ~10%. */
+/**
+ * Reads a token at call time.
+ *
+ * SVG `fill` and `stroke` accept `var(--token)` directly, so most marks use
+ * the string form and follow a theme change with no JavaScript at all. This
+ * helper exists only for the few places that need a resolved value (a canvas
+ * context, an inline gradient stop), and it falls back to the light value when
+ * there is no document — during SSR, or in a test.
+ */
+function token(name: string, fallback: string): string {
+  if (typeof document === 'undefined') return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
+/**
+ * The single data hue, as a `var()` reference.
+ *
+ * Passing this straight to an SVG attribute is what makes the charts
+ * theme-aware for free: the browser re-resolves the variable when the theme
+ * attribute changes, with no re-render.
+ */
+export const DATA_HUE = 'var(--chart-1)';
+/** A subordinate series (previous period, sparkline context). Grey, not a hue. */
+export const CONTEXT_HUE = 'var(--chart-context)';
+/** Area wash. The dataviz spec is the series hue at ~10%. */
 export const AREA_OPACITY = 0.1;
 
+/** Four categorical slots, in fixed order. Never cycled, never extended. */
+export const CATEGORICAL = [
+  'var(--chart-1)',
+  'var(--chart-2)',
+  'var(--chart-3)',
+  'var(--chart-4)',
+] as const;
+
 /** Monotonic sequential ramp, light → dark. */
-export const SEQUENTIAL_RAMP = ['#FAE9E2', '#F3C9B8', '#EA8B68', '#E07049', '#C65A36', '#A2472A'] as const;
+export const SEQUENTIAL_RAMP = [
+  'var(--chart-seq-1)',
+  'var(--chart-seq-2)',
+  'var(--chart-seq-3)',
+  'var(--chart-seq-4)',
+  'var(--chart-seq-5)',
+  'var(--chart-seq-6)',
+] as const;
 
 /** Recessive chrome. One step off the surface, hairline, solid. */
-export const GRID_COLOR = '#E7E0D6';
-export const AXIS_TEXT = '#9A9188';
-export const SURFACE = '#FFFFFF';
+export const GRID_COLOR = 'var(--chart-grid)';
+export const AXIS_TEXT = 'var(--chart-axis-text)';
+/** The surface behind the marks — used for the 2px separating ring. */
+export const SURFACE = 'var(--color-surface)';
+
+/** Resolved values, for the rare caller that cannot use a var() string. */
+export const resolved = {
+  dataHue: () => token('--chart-1', '#4338CA'),
+  surface: () => token('--color-surface', '#FFFFFF'),
+};
 
 /** Mark specs, from the dataviz reference. */
 export const MARK = {

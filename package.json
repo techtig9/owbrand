@@ -11,7 +11,10 @@
     "type-check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify": "npm run type-check && npm run lint && npm run test && npm run build"
+    "verify": "npm run type-check && npm run lint && npm run check:contrast && npm run test && npm run build",
+    "check:contrast": "node scripts/check-contrast.mjs",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
@@ -43,11 +46,13 @@
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
     "autoprefixer": "^10.4.20",
+    "axe-core": "^4.13.0",
     "eslint": "^8.57.0",
     "eslint-config-next": "^14.2.35",
     "jsdom": "^25.0.1",
     "playwright-core": "^1.49.1",
     "postcss": "^8.4.45",
+    "prettier": "^3.8.1",
     "tailwindcss": "^3.4.10",
     "typescript": "^5.5.4",
     "vitest": "^2.1.9"
