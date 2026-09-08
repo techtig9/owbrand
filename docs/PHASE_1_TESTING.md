@@ -75,7 +75,7 @@ npm run start &        # or PORT=3100 npx next start -p 3100
 node tests/browser/smoke.js
 ```
 
-`BASE_URL` and `CHROME_PATH` override the target and the browser binary. Supabase does **not** need to be reachable — anything requiring a live session belongs to the other two suites.
+`playwright-core` is a devDependency, so `npm ci` is enough — no `playwright install` step, and no browser download. The Chromium binary is located via `CHROME_PATH`, defaulting to the one this environment provides. `BASE_URL` overrides the target. Supabase does **not** need to be reachable — anything requiring a live session belongs to the other two suites.
 
 52 assertions: rendering, real hydration (React root attached, plus a control whose class actually changes on click), accessible labelling of every input, client-side password validation, the Google button issuing a genuine PKCE `authorize` request, middleware redirects preserving the deep link in `?next`, the custom 404, no CSP violations, no unexpected console errors, and no horizontal overflow at 320/375/390/430/768/1024/1280/1440/1920px.
 

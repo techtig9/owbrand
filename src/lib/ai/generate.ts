@@ -15,7 +15,7 @@
  * adapter reads its credential from the environment at call time.
  */
 import 'server-only';
-import type { ZodType } from 'zod';
+import type { ZodTypeAny, output as ZodOutput } from 'zod';
 import { ApiError } from '@/lib/api/errors';
 import { logger, newRequestId } from '@/lib/logger';
 import { generateWithFailover, type FailoverAttempt } from '@/lib/ai/resilience';
@@ -90,8 +90,14 @@ export async function generateText(options: GenerateOptions): Promise<{
  * Structured (schema-validated) output
  * ------------------------------------------------------------------ */
 
-export interface GenerateStructuredOptions<T> extends GenerateOptions {
-  schema: ZodType<T>;
+/*
+ * The generic is the SCHEMA, not the result. `ZodType<T>` expands to
+ * `ZodType<T, ZodTypeDef, T>`, which makes TypeScript bind T to Zod's INPUT
+ * type and leaves every `.default()` field optional at the call site — see the
+ * same note in lib/api/validate.ts.
+ */
+export interface GenerateStructuredOptions<S extends ZodTypeAny> extends GenerateOptions {
+  schema: S;
   /** JSON Schema handed to providers that support constrained decoding. */
   jsonSchema?: { name: string; schema: Record<string, unknown> };
   /** Extra whole-generation attempts when validation fails. */
@@ -109,9 +115,9 @@ export interface GenerateStructuredOptions<T> extends GenerateOptions {
  *   3. on failure, regenerate with the validation errors fed back to the model
  *   4. after the retry budget, raise a friendly error so the caller refunds
  */
-export async function generateStructured<T>(
-  options: GenerateStructuredOptions<T>
-): Promise<AIStructuredResult<T>> {
+export async function generateStructured<S extends ZodTypeAny>(
+  options: GenerateStructuredOptions<S>
+): Promise<AIStructuredResult<ZodOutput<S>>> {
   const requestId = newRequestId();
   assertProviderAvailable();
 
