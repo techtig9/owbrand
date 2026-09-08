@@ -15,6 +15,12 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+      // `import 'server-only'` is a build-time guard for the Next bundler: its
+      // browser entry point throws so a server module cannot be pulled into a
+      // client bundle. Vitest resolves that browser entry, which would make
+      // every server module untestable. Aliasing it to an empty shim keeps the
+      // production guard intact while letting the tests import the module.
+      'server-only': fileURLToPath(new URL('./tests/shims/server-only.ts', import.meta.url)),
     },
   },
   test: {

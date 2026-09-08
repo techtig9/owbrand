@@ -1,39 +1,41 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { routeHandler, ApiError } from '@/lib/api/errors';
-import { parseJsonBody, uuidSchema, boundedText, supportedPublishPlatformSchema } from '@/lib/api/validate';
-import { requireUser, assertBrandAccess } from '@/lib/auth/guards';
+import { parseJsonBody, uuidSchema, boundedText } from '@/lib/api/validate';
+import { requireUser, assertBrandAccess, assertContentAssetAccess } from '@/lib/auth/guards';
 import { enforceRateLimit } from '@/lib/security/rate-limit';
 import { createPublishIdempotencyKey } from '@/lib/publishing/idempotency';
-import { DatabasePublishingQueue } from '@/lib/publishing/queue';
+import { DatabasePublishingQueue, PublishNotPossibleError } from '@/lib/publishing/queue';
+import { validateMediaForPlatform } from '@/lib/publishing/media-validation';
+import { SOCIAL_PLATFORMS } from '@/lib/social/platforms';
 import { primaryWorkspaceId } from '@/lib/jobs/job-store';
+import { isConfigured } from '@/lib/env';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 
 /**
- * SECURITY FIX (Phase 1)
+ * Queues a post for publishing.
  *
- * Before: NO AUTHENTICATION. The route accepted brandId, mediaUrls and — worst
- * of all — `accessTokenRef` straight from an anonymous request body, then
- * reported `{ queued: true }` for a job the queue never persisted.
+ * Phase 1 authenticated this route and made the queue durable. Phase 3 makes
+ * the answer true: a queued post is now claimed by a real worker, published
+ * through a real provider adapter, and retried on transient failure. The
+ * "worker arrives in Phase 3" note is gone because the worker exists.
  *
- * Now:
- *   - authenticated, rate limited, and the brand is authorized against the
- *     caller's ownership or workspace membership;
- *   - the platform credential is NEVER named by the client — the worker
- *     resolves it from the brand's stored connection at publish time;
- *   - the job is durably persisted and deduplicated by idempotency key;
- *   - a connected account for the platform must exist before we accept work.
+ * `platform` accepts every platform rather than only the two we can publish
+ * to, so an unsupported choice returns a specific explanation from the
+ * platform table instead of a schema error that says nothing.
  */
 
 const queue = new DatabasePublishingQueue();
 
 const PublishRequest = z.object({
   brandId: uuidSchema,
-  platform: supportedPublishPlatformSchema,
-  // The post being published. Used to build the idempotency key.
+  platform: z.enum(SOCIAL_PLATFORMS),
+  /** The post identity. Used to build the idempotency key. */
   postId: uuidSchema,
-  caption: boundedText(0, 2200).optional(),
-  mediaUrls: z.array(z.string().url()).min(1).max(10),
+  /** The generated asset this came from, so the post links back to it. */
+  contentAssetId: uuidSchema.optional(),
+  caption: boundedText(0, 63206).optional(),
+  mediaUrls: z.array(z.string().url()).max(10).default([]),
   scheduledFor: z.string().datetime({ offset: true }).optional(),
 });
 
@@ -46,21 +48,34 @@ export const POST = routeHandler('/api/social/publish', async (request: Request)
 
   const brand = await assertBrandAccess(user.id, body.brandId, { db });
 
-  // Refuse to queue work we know cannot succeed: the brand must actually have
-  // a connected account for this platform.
-  const { data: account } = await db
-    .from('social_accounts')
-    .select('id')
-    .eq('user_id', user.id)
-    .eq('platform', body.platform)
-    .maybeSingle();
-
-  if (!account) {
-    throw ApiError.invalid(`Connect a ${body.platform} account before publishing.`);
+  // A post can only be built from an asset the caller owns. Without this a
+  // caller could publish another tenant's generated content to their own
+  // account — the same class of bug this route had before Phase 1.
+  if (body.contentAssetId) {
+    await assertContentAssetAccess(user.id, body.contentAssetId, db);
   }
 
-  // A scheduled time must be in the future — otherwise the worker would treat
-  // it as immediately due, which is almost never what the caller meant.
+  if (!isConfigured.publishingWorker()) {
+    // Queuing into a queue nothing drains would be the old lie in a new place.
+    throw ApiError.notConfigured(
+      'The publishing worker is not configured on this server (CRON_SECRET is unset), so a queued post would never be sent.'
+    );
+  }
+
+  // Structural media checks before anything is written. Per-file limits need
+  // sizes the caller may not have; /api/social/media-check covers those.
+  const mediaCheck = validateMediaForPlatform(
+    body.platform,
+    body.mediaUrls.map(() => ({})),
+    { caption: body.caption }
+  );
+
+  if (mediaCheck.postIssues.length > 0) {
+    throw ApiError.invalid(mediaCheck.postIssues[0].message, {
+      issues: mediaCheck.postIssues.map((issue) => issue.code),
+    });
+  }
+
   if (body.scheduledFor && new Date(body.scheduledFor).getTime() <= Date.now()) {
     throw ApiError.invalid('Scheduled time must be in the future.');
   }
@@ -70,27 +85,37 @@ export const POST = routeHandler('/api/social/publish', async (request: Request)
 
   const idempotencyKey = createPublishIdempotencyKey(body.postId, body.platform, body.scheduledFor);
 
-  const { jobId, socialPostId, deduplicated } = await queue.enqueue({
-    workspaceId,
-    brandId: body.brandId,
-    userId: user.id,
-    platform: body.platform,
-    caption: body.caption,
-    mediaUrls: body.mediaUrls,
-    scheduledFor: body.scheduledFor,
-    idempotencyKey,
-  });
+  try {
+    const result = await queue.enqueue({
+      workspaceId,
+      brandId: body.brandId,
+      userId: user.id,
+      platform: body.platform,
+      caption: body.caption,
+      mediaUrls: body.mediaUrls,
+      scheduledFor: body.scheduledFor,
+      idempotencyKey,
+      contentAssetId: body.contentAssetId ?? null,
+    });
 
-  return NextResponse.json(
-    {
-      queued: true,
-      deduplicated,
-      jobId,
-      socialPostId,
-      status: body.scheduledFor ? 'scheduled' : 'queued',
-      // Be honest about what "queued" means today.
-      note: 'The publishing worker is delivered in Phase 3; this job is persisted and will be claimed when it runs.',
-    },
-    { status: deduplicated ? 200 : 202 }
-  );
+    return NextResponse.json(
+      {
+        queued: true,
+        deduplicated: result.deduplicated,
+        jobId: result.jobId,
+        publishingJobId: result.publishingJobId,
+        socialPostId: result.socialPostId,
+        status: result.state,
+        scheduledFor: result.scheduledFor,
+      },
+      { status: result.deduplicated ? 200 : 202 }
+    );
+  } catch (error) {
+    // A platform we cannot publish to, or an account that needs reconnecting,
+    // is the caller's situation to fix — not a server fault.
+    if (error instanceof PublishNotPossibleError) {
+      throw ApiError.invalid(error.message, { reason: error.reason });
+    }
+    throw error;
+  }
 });

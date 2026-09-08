@@ -211,7 +211,10 @@ export async function assertProductAssetAccess(
 export async function assertContentAssetAccess(userId: string, assetId: string, db: Db = supabaseAdmin()) {
   const { data: asset, error } = await db
     .from('content_assets')
-    .select('id,user_id,brand_id,type,url,caption,status')
+    // `metadata` is included because callers that have proved access to the
+    // asset legitimately need its carousel media list (see
+    // /api/scheduler/schedule-post). It holds no credentials.
+    .select('id,user_id,brand_id,type,url,caption,status,metadata')
     .eq('id', assetId)
     .maybeSingle();
 

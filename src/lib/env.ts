@@ -113,6 +113,37 @@ export const serverEnv = {
     return optional(process.env.UPSTASH_REDIS_REST_TOKEN);
   },
 
+  /* --- Social publishing (Meta) --- */
+  get metaAppId(): string {
+    assertServer('META_APP_ID');
+    return required('META_APP_ID', process.env.META_APP_ID, 'From developers.facebook.com → your app → Settings → Basic.');
+  },
+  get metaAppSecret(): string {
+    assertServer('META_APP_SECRET');
+    return required('META_APP_SECRET', process.env.META_APP_SECRET);
+  },
+  /**
+   * Pinned Graph API version.
+   *
+   * Meta deprecates a version roughly every two years and CHANGES BEHAVIOUR
+   * between them, so the version is explicit configuration rather than
+   * whatever the default happens to be on the day of a deploy.
+   */
+  get metaGraphVersion(): string {
+    return process.env.META_GRAPH_VERSION?.trim() || 'v21.0';
+  },
+
+  /**
+   * Shared secret for the worker trigger endpoints.
+   *
+   * There is no default. An unset value means the cron endpoints refuse every
+   * caller, which is the safe failure: the alternative is a publicly callable
+   * endpoint that publishes to real social accounts.
+   */
+  get cronSecret(): string | undefined {
+    return optional(process.env.CRON_SECRET);
+  },
+
   get appVersion(): string {
     return process.env.APP_VERSION || process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || 'development';
   },
@@ -141,6 +172,23 @@ export const isConfigured = {
   ai: () => Boolean(process.env.GEMINI_API_KEY || process.env.ANTHROPIC_API_KEY),
   imageProvider: () => Boolean(process.env.IMAGE_PROVIDER_URL && process.env.IMAGE_PROVIDER_API_KEY),
   videoProvider: () => Boolean(process.env.VIDEO_PROVIDER_URL && process.env.VIDEO_PROVIDER_API_KEY),
+  /**
+   * Credential encryption. Checked here as a plain length test rather than by
+   * importing lib/crypto/secret-box, which is server-only — this module is
+   * read from client bundles for `publicEnv`.
+   */
+  tokenEncryption: () => {
+    const raw = process.env.TOKEN_ENCRYPTION_KEY?.trim();
+    if (!raw) return false;
+    const decoded = /^[0-9a-fA-F]{64}$/.test(raw)
+      ? Buffer.from(raw, 'hex')
+      : Buffer.from(raw.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+    return decoded.length === 32;
+  },
+  /** Meta OAuth needs the app credentials AND somewhere safe to put the token. */
+  metaOAuth: () =>
+    Boolean(process.env.META_APP_ID && process.env.META_APP_SECRET) && isConfigured.tokenEncryption(),
+  publishingWorker: () => Boolean(process.env.CRON_SECRET),
 };
 
 export { MissingEnvError };

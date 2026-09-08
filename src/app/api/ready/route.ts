@@ -80,13 +80,67 @@ async function checkStorage(): Promise<Check> {
   }
 }
 
+/**
+ * Is the publishing queue actually moving?
+ *
+ * A queue with jobs long past due is the specific failure this whole phase is
+ * meant to prevent: the API accepts posts, the rows exist, and nothing sends
+ * them. That looks healthy on every other check.
+ */
+async function checkPublishingQueue(): Promise<Check> {
+  if (!isConfigured.supabaseAdmin()) {
+    return { name: 'publishing_queue', status: 'not_configured', critical: false };
+  }
+
+  try {
+    const db = supabaseAdmin();
+    const overdueBefore = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+
+    const { count, error } = await withTimeout(
+      Promise.resolve(
+        db
+          .from('publishing_jobs')
+          .select('id', { count: 'exact', head: true })
+          .in('status', ['queued', 'scheduled'])
+          .lte('scheduled_for', overdueBefore)
+      )
+    );
+
+    // 42P01 = the table is not there; the migrations check already reports that.
+    if (error && (error as { code?: string }).code === '42P01') {
+      return { name: 'publishing_queue', status: 'not_configured', critical: false, detail: 'publishing_jobs table missing.' };
+    }
+    if (error) throw error;
+
+    const overdue = count ?? 0;
+
+    return {
+      name: 'publishing_queue',
+      status: overdue > 0 ? 'degraded' : 'ok',
+      critical: false,
+      detail: overdue > 0 ? `${overdue} job(s) are more than 15 minutes past due — is the cron trigger running?` : undefined,
+    };
+  } catch (error) {
+    logger.error('ready:publishing_queue_check_failed', error);
+    return { name: 'publishing_queue', status: 'down', critical: false };
+  }
+}
+
 /** Confirms the audit tables Phase 1 depends on are present. */
 async function checkMigrations(): Promise<Check> {
   if (!isConfigured.supabaseAdmin()) {
     return { name: 'migrations', status: 'not_configured', critical: true };
   }
 
-  const required = ['webhook_events', 'email_logs', 'ai_usage_logs', 'audit_logs', 'generation_jobs'];
+  const required = [
+    'webhook_events',
+    'email_logs',
+    'ai_usage_logs',
+    'audit_logs',
+    'generation_jobs',
+    'publishing_jobs',
+    'oauth_states',
+  ];
 
   try {
     const db = supabaseAdmin();
@@ -152,23 +206,47 @@ function configurationChecks(): Check[] {
         : 'Upstash not configured — rate limits are per-instance only and will not hold across a scaled deployment.',
     },
     {
+      // The worker now exists (lib/publishing/worker.ts). What this reports is
+      // whether anything can TRIGGER it: without CRON_SECRET the cron endpoint
+      // refuses every caller, so queued posts would never be sent.
       name: 'publishing_worker',
-      // Honest: the worker is Phase 3. Do not report a component we have not built.
-      status: 'not_configured',
+      status: isConfigured.publishingWorker() ? 'ok' : 'not_configured',
       critical: false,
-      detail: 'Publishing worker is delivered in Phase 3. Jobs are persisted but not yet executed.',
+      detail: isConfigured.publishingWorker()
+        ? undefined
+        : 'CRON_SECRET is unset, so /api/cron/publish refuses every caller and queued posts would never be sent.',
+    },
+    {
+      name: 'social_oauth',
+      status: isConfigured.metaOAuth() ? 'ok' : 'not_configured',
+      critical: false,
+      detail: isConfigured.metaOAuth()
+        ? undefined
+        : 'META_APP_ID, META_APP_SECRET and TOKEN_ENCRYPTION_KEY must all be set before an account can be connected.',
+    },
+    {
+      // Called out separately from social_oauth: without it NOTHING can store
+      // a provider credential, and the failure would otherwise look like an
+      // OAuth problem.
+      name: 'credential_encryption',
+      status: isConfigured.tokenEncryption() ? 'ok' : 'not_configured',
+      critical: false,
+      detail: isConfigured.tokenEncryption()
+        ? undefined
+        : 'TOKEN_ENCRYPTION_KEY is unset. Provider tokens are never stored unencrypted, so connecting an account will fail.',
     },
   ];
 }
 
 export async function GET() {
-  const [database, storage, migrations] = await Promise.all([
+  const [database, storage, migrations, publishingQueue] = await Promise.all([
     checkDatabase(),
     checkStorage(),
     checkMigrations(),
+    checkPublishingQueue(),
   ]);
 
-  const checks: Check[] = [database, storage, migrations, ...configurationChecks()];
+  const checks: Check[] = [database, storage, migrations, publishingQueue, ...configurationChecks()];
 
   const criticalFailure = checks.some((c) => c.critical && c.status !== 'ok');
   const degraded = checks.some((c) => !c.critical && (c.status === 'degraded' || c.status === 'down'));

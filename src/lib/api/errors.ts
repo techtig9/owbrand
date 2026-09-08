@@ -90,6 +90,9 @@ export class ApiError extends Error {
   static paymentRequired(message: string) {
     return new ApiError('payment_required', message, { details: { upgradeRequired: true } });
   }
+  static conflict(message?: string) {
+    return new ApiError('conflict', message);
+  }
   static notConfigured(message: string) {
     return new ApiError('not_configured', message);
   }

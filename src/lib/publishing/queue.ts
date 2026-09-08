@@ -1,34 +1,37 @@
-import type { SocialPlatform } from './platform-types';
+import 'server-only';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { enqueueJob, type JobRecord } from '@/lib/jobs/job-store';
 import { supabaseAdmin } from '@/lib/supabase/admin';
+import { accountForBrandPlatform, accountHealth } from '@/lib/social/account-store';
+import { canPublishTo, PLATFORMS, type SocialPlatform } from '@/lib/social/platforms';
+import { DEFAULT_MAX_ATTEMPTS } from './retry-policy';
 import { logger } from '@/lib/logger';
 
 /**
  * Durable publishing queue.
  *
- * The previous DatabasePublishingQueue returned
- *   `{ jobId: 'publish_' + idempotencyKey.slice(0,16) }`
- * and wrote nothing to the database, so /api/social/publish reported success
- * for work that would never be performed and could never be inspected.
+ * Phase 1 replaced a version of this that returned
+ * `{ jobId: 'publish_' + idempotencyKey.slice(0,16) }` and wrote nothing.
+ * Phase 3 completes it: the rows it writes are now the rows the worker
+ * actually claims, and it refuses work it can already tell will fail.
  *
- * This implementation writes two rows in the right order:
- *   1. `social_posts`  — the user-visible post, unique on idempotency_key
- *   2. `generation_jobs` — the durable work item the worker will claim
+ * Three rows, in dependency order:
+ *   1. `social_posts`     — the user-visible post. Unique on idempotency_key.
+ *   2. `publishing_jobs`  — what the worker leases and retries.
+ *   3. `generation_jobs`  — the workspace-scoped job record the jobs API
+ *                           exposes, so a client can poll one endpoint for
+ *                           every kind of background work.
  *
- * Actually executing the job (OAuth token exchange, Graph API calls, retries)
- * is Phase 3. What Phase 1 fixes is the lie: an enqueued publish is now a real,
- * queryable, restart-surviving record, and a duplicate request returns the
- * original instead of creating a second post.
+ * The credential is conspicuously absent from the input type. The original
+ * `PublishPayload` carried an `accessTokenRef` supplied by the client, which
+ * the unauthenticated publish route passed straight through — so a caller
+ * could name the credential to publish with. The worker resolves it from the
+ * brand's stored connection instead, and nothing in between can influence
+ * that choice.
  */
-/**
- * What the API layer may hand the queue.
- *
- * Note what is ABSENT: no access token and no token reference. The old
- * PublishPayload carried an `accessTokenRef` supplied by the client, which the
- * route passed straight through. Credentials are resolved server-side by the
- * worker from the brand's stored OAuth connection at publish time — a caller
- * never gets to name which credential is used.
- */
+
+type Db = SupabaseClient<any, any, any>;
+
 export interface EnqueuePublishInput {
   workspaceId: string;
   brandId: string;
@@ -38,12 +41,27 @@ export interface EnqueuePublishInput {
   mediaUrls: string[];
   scheduledFor?: string;
   idempotencyKey: string;
+  /** The generated asset this post came from, when there is one. */
+  contentAssetId?: string | null;
 }
 
 export interface EnqueuePublishResult {
   jobId: string;
+  publishingJobId: string;
   socialPostId: string;
   deduplicated: boolean;
+  scheduledFor: string | null;
+  /** What the caller should tell the user about when this will go out. */
+  state: 'scheduled' | 'queued';
+}
+
+export class PublishNotPossibleError extends Error {
+  readonly reason: string;
+  constructor(reason: string, message: string) {
+    super(message);
+    this.name = 'PublishNotPossibleError';
+    this.reason = reason;
+  }
 }
 
 export interface PublishingQueue {
@@ -54,99 +72,186 @@ export class DatabasePublishingQueue implements PublishingQueue {
   async enqueue(payload: EnqueuePublishInput): Promise<EnqueuePublishResult> {
     const db = supabaseAdmin();
 
-    // 1. The post itself. The unique idempotency_key is what prevents the same
-    //    content being published twice.
-    const postRow = {
-      brand_id: payload.brandId,
-      platform: payload.platform,
-      status: payload.scheduledFor ? 'scheduled' : 'queued',
-      caption: payload.caption ?? null,
-      media_urls: payload.mediaUrls ?? [],
-      scheduled_for: payload.scheduledFor ?? null,
-      idempotency_key: payload.idempotencyKey,
+    await assertCanEnqueue(payload, db);
+
+    const account = await accountForBrandPlatform(payload.brandId, payload.platform, db);
+    const state: 'scheduled' | 'queued' = payload.scheduledFor ? 'scheduled' : 'queued';
+
+    const { socialPostId, deduplicated: postDeduplicated } = await upsertPost(payload, account?.id ?? null, state, db);
+
+    const publishingJobId = await upsertPublishingJob(payload, socialPostId, account?.id ?? null, state, db);
+
+    const { job, deduplicated: jobDeduplicated } = await recordWorkspaceJob(payload, socialPostId, db);
+
+    return {
+      jobId: job.id,
+      publishingJobId,
+      socialPostId,
+      deduplicated: postDeduplicated || jobDeduplicated,
+      scheduledFor: payload.scheduledFor ?? null,
+      state,
     };
-
-    let socialPostId: string;
-    let deduplicated = false;
-
-    const { data: inserted, error: insertError } = await db
-      .from('social_posts')
-      .insert(postRow)
-      .select('id')
-      .single();
-
-    if (insertError) {
-      if ((insertError as { code?: string }).code === '23505') {
-        const { data: existing } = await db
-          .from('social_posts')
-          .select('id')
-          .eq('idempotency_key', payload.idempotencyKey)
-          .maybeSingle();
-
-        if (!existing) throw insertError;
-        socialPostId = (existing as { id: string }).id;
-        deduplicated = true;
-        logger.info('publishing:deduplicated_post', {
-          brandId: payload.brandId,
-          socialPostId,
-          platform: payload.platform,
-        });
-      } else {
-        throw insertError;
-      }
-    } else {
-      socialPostId = (inserted as { id: string }).id;
-    }
-
-    // 2. The durable work item. Same idempotency key, so a retry that got past
-    //    step 1 still cannot create a second job.
-    let job: JobRecord;
-    try {
-      const result = await enqueueJob(
-        {
-          workspaceId: payload.workspaceId,
-          type: 'social_publish',
-          idempotencyKey: payload.idempotencyKey,
-          createdBy: payload.userId,
-          payload: {
-            socialPostId,
-            brandId: payload.brandId,
-            platform: payload.platform,
-            scheduledFor: payload.scheduledFor ?? null,
-            mediaCount: payload.mediaUrls?.length ?? 0,
-          },
-        },
-        db
-      );
-      job = result.job;
-      deduplicated = deduplicated || result.deduplicated;
-    } catch (error) {
-      // The post exists but the work item does not — leave the post in a state
-      // that clearly is not "queued for publishing".
-      await db
-        .from('social_posts')
-        .update({ status: 'failed', last_error: 'Could not queue the publishing job.' })
-        .eq('id', socialPostId);
-      throw error;
-    }
-
-    // 3. Worker-facing bookkeeping row. Best-effort: the job above is the
-    //    source of truth, this table exists for operational visibility.
-    const { error: jobRowError } = await db.from('publishing_jobs').insert({
-      social_post_id: socialPostId,
-      platform: payload.platform,
-      status: payload.scheduledFor ? 'scheduled' : 'queued',
-      idempotency_key: payload.idempotencyKey,
-      scheduled_for: payload.scheduledFor ?? null,
-    });
-
-    if (jobRowError && (jobRowError as { code?: string }).code !== '23505') {
-      logger.warn('publishing:job_row_insert_failed', {
-        socialPostId,
-        error: String(jobRowError.message ?? jobRowError),
-      });
-    }
-
-    return { jobId: job.id, socialPostId, deduplicated };
   }
+}
+
+/**
+ * Refuses work that cannot succeed, before anything is written.
+ *
+ * Accepting a TikTok post because the table has a `platform` column and then
+ * failing it in the worker five attempts later is the behaviour the master
+ * command's "never mark an unfinished integration as complete" rules out.
+ */
+async function assertCanEnqueue(payload: EnqueuePublishInput, db: Db): Promise<void> {
+  const definition = PLATFORMS[payload.platform];
+
+  if (!canPublishTo(payload.platform)) {
+    throw new PublishNotPossibleError(
+      'platform_unavailable',
+      definition.unavailableReason ?? `OwBrand cannot publish to ${definition.label} yet.`
+    );
+  }
+
+  const account = await accountForBrandPlatform(payload.brandId, payload.platform, db);
+
+  if (!account) {
+    throw new PublishNotPossibleError(
+      'no_connected_account',
+      `Connect a ${definition.label} account for this brand before publishing.`
+    );
+  }
+
+  const health = accountHealth(account);
+  if (!health.usable) {
+    throw new PublishNotPossibleError(
+      'account_needs_reconnect',
+      health.missingScopes.length > 0
+        ? `The connected ${definition.label} account is missing permission(s): ${health.missingScopes.join(', ')}. Reconnect it.`
+        : `The connected ${definition.label} account needs to be reconnected before publishing.`
+    );
+  }
+}
+
+async function upsertPost(
+  payload: EnqueuePublishInput,
+  socialAccountId: string | null,
+  state: 'scheduled' | 'queued',
+  db: Db
+): Promise<{ socialPostId: string; deduplicated: boolean }> {
+  const row = {
+    brand_id: payload.brandId,
+    social_account_id: socialAccountId,
+    content_asset_id: payload.contentAssetId ?? null,
+    created_by: payload.userId,
+    platform: payload.platform,
+    status: state,
+    caption: payload.caption ?? null,
+    media_urls: payload.mediaUrls ?? [],
+    scheduled_for: payload.scheduledFor ?? null,
+    idempotency_key: payload.idempotencyKey,
+  };
+
+  const { data, error } = await db.from('social_posts').insert(row).select('id').single();
+
+  if (!error && data) {
+    return { socialPostId: (data as { id: string }).id, deduplicated: false };
+  }
+
+  // 23505 = unique_violation on idempotency_key. Return the original post
+  // rather than creating a second one: a duplicated social post is publicly
+  // visible and cannot be undone.
+  if (error && (error as { code?: string }).code === '23505') {
+    const { data: existing } = await db
+      .from('social_posts')
+      .select('id')
+      .eq('idempotency_key', payload.idempotencyKey)
+      .maybeSingle();
+
+    if (existing) {
+      logger.info('publishing:deduplicated_post', {
+        brandId: payload.brandId,
+        socialPostId: (existing as { id: string }).id,
+        platform: payload.platform,
+      });
+      return { socialPostId: (existing as { id: string }).id, deduplicated: true };
+    }
+  }
+
+  throw error ?? new Error('Could not persist the post.');
+}
+
+async function upsertPublishingJob(
+  payload: EnqueuePublishInput,
+  socialPostId: string,
+  socialAccountId: string | null,
+  state: 'scheduled' | 'queued',
+  db: Db
+): Promise<string> {
+  const row = {
+    social_post_id: socialPostId,
+    brand_id: payload.brandId,
+    social_account_id: socialAccountId,
+    platform: payload.platform,
+    status: state,
+    idempotency_key: payload.idempotencyKey,
+    scheduled_for: payload.scheduledFor ?? null,
+    max_attempts: DEFAULT_MAX_ATTEMPTS,
+    // A job with no schedule is due immediately.
+    next_attempt_at: payload.scheduledFor ?? null,
+  };
+
+  const { data, error } = await db.from('publishing_jobs').insert(row).select('id').single();
+
+  if (!error && data) return (data as { id: string }).id;
+
+  if (error && (error as { code?: string }).code === '23505') {
+    const { data: existing } = await db
+      .from('publishing_jobs')
+      .select('id')
+      .eq('idempotency_key', payload.idempotencyKey)
+      .maybeSingle();
+
+    if (existing) return (existing as { id: string }).id;
+  }
+
+  // Without a publishing job nothing will ever publish this post, so the post
+  // must not be left looking queued.
+  await db
+    .from('social_posts')
+    .update({ status: 'failed', last_error: 'Could not queue the publishing job.' })
+    .eq('id', socialPostId);
+
+  throw error ?? new Error('Could not queue the publishing job.');
+}
+
+/**
+ * The workspace-scoped job record.
+ *
+ * Best-effort by design: `publishing_jobs` is what the worker reads, so a
+ * failure here costs the client a polling endpoint, not the publish. Failing
+ * the whole request would be worse — the post is already queued and would
+ * publish anyway.
+ */
+async function recordWorkspaceJob(
+  payload: EnqueuePublishInput,
+  socialPostId: string,
+  db: Db
+): Promise<{ job: JobRecord; deduplicated: boolean }> {
+  const result = await enqueueJob(
+    {
+      workspaceId: payload.workspaceId,
+      type: 'social_publish',
+      idempotencyKey: payload.idempotencyKey,
+      createdBy: payload.userId,
+      payload: {
+        socialPostId,
+        brandId: payload.brandId,
+        platform: payload.platform,
+        scheduledFor: payload.scheduledFor ?? null,
+        mediaCount: payload.mediaUrls?.length ?? 0,
+      },
+    },
+    db
+  );
+
+  return result;
 }

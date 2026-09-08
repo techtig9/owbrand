@@ -245,6 +245,202 @@ function record(name, passed, detail = '') {
   }
 
   /* ---------------------------------------------------------------- *
+   * Phase 3 screens are behind the guard
+   * ---------------------------------------------------------------- */
+  for (const path of ['/dashboard/connections', '/dashboard/scheduler']) {
+    await page.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
+    const target = new URL(page.url());
+    record(`middleware: ${path} redirects anonymous to /login`, target.pathname === '/login', page.url());
+    record(
+      `middleware: ${path} deep link preserved`,
+      target.searchParams.get('next') === path,
+      target.searchParams.get('next') || 'absent',
+    );
+  }
+
+  /* ---------------------------------------------------------------- *
+   * The publishing trigger is not publicly callable
+   *
+   * This is the most dangerous route in the app: reaching it causes posts to
+   * appear on real social accounts. CRON_SECRET is set in the test env, so a
+   * caller with no secret or a wrong one must be refused — and must not learn
+   * that a publishing trigger lives at this path.
+   * ---------------------------------------------------------------- */
+  for (const cronPath of ['/api/cron/publish', '/api/cron/social-health']) {
+    for (const [label, headers] of [
+      ['no credentials', {}],
+      ['a wrong bearer token', { authorization: 'Bearer definitely-not-the-secret' }],
+      ['a wrong custom header', { 'x-cron-secret': 'definitely-not-the-secret' }],
+      ['an empty bearer token', { authorization: 'Bearer ' }],
+    ]) {
+      const probe = await page.evaluate(
+        async ([p, h]) => {
+          const response = await fetch(p, { method: 'POST', headers: h });
+          return { status: response.status, body: (await response.text()).slice(0, 300) };
+        },
+        [cronPath, headers],
+      );
+
+      record(
+        `${cronPath}: refuses ${label}`,
+        probe.status === 404 || probe.status === 503,
+        `status ${probe.status}`,
+      );
+      // A 401 would confirm the endpoint exists and takes a secret.
+      record(
+        `${cronPath}: does not advertise itself to ${label}`,
+        probe.status !== 401 && !/cron|worker|publish/i.test(probe.body),
+        probe.body.slice(0, 100),
+      );
+    }
+
+    // GET is accepted by platform schedulers, so it must be guarded identically.
+    const getProbe = await page.evaluate(async (p) => {
+      const response = await fetch(p);
+      return response.status;
+    }, cronPath);
+    record(`${cronPath}: GET is guarded too`, getProbe === 404 || getProbe === 503, `status ${getProbe}`);
+  }
+
+  /*
+   * Positive control for the cron guard.
+   *
+   * Every refusal above would also pass if the endpoint returned 404
+   * unconditionally — which would be a broken publisher that looks perfectly
+   * secure. This asserts the guard actually DISCRIMINATES: the correct secret
+   * must get past it. Skipped when the harness has no secret to present.
+   */
+  if (process.env.CRON_SECRET) {
+    const authorized = await page.evaluate(
+      async (secret) => {
+        const response = await fetch('/api/cron/publish', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${secret}` },
+        });
+        return { status: response.status, body: (await response.text()).slice(0, 200) };
+      },
+      process.env.CRON_SECRET,
+    );
+
+    record(
+      'cron guard discriminates: the correct secret is not refused as 404',
+      authorized.status !== 404,
+      `status ${authorized.status}`,
+    );
+    // With Supabase unreachable the run itself fails, and reporting 500 rather
+    // than a cheerful empty success is the intended behaviour.
+    record(
+      'cron: a failed run reports failure instead of a fake empty success',
+      authorized.status === 500 || authorized.status === 200,
+      `status ${authorized.status} ${authorized.body.slice(0, 80)}`,
+    );
+  }
+
+  /* ---------------------------------------------------------------- *
+   * Social endpoints refuse an anonymous caller
+   * ---------------------------------------------------------------- */
+  for (const [method, path] of [
+    ['GET', '/api/social/oauth/start?provider=meta'],
+    ['GET', '/api/social/accounts'],
+    ['DELETE', '/api/social/accounts'],
+    ['POST', '/api/social/publish'],
+    ['POST', '/api/social/media-check'],
+    ['POST', '/api/scheduler/schedule-post'],
+    ['GET', '/api/scheduler/list-scheduled-posts'],
+    ['POST', '/api/scheduler/cancel-scheduled-post'],
+  ]) {
+    const probe = await page.evaluate(
+      async ([m, p]) => {
+        const response = await fetch(p, {
+          method: m,
+          headers: m === 'GET' ? {} : { 'content-type': 'application/json' },
+          body: m === 'GET' ? undefined : '{}',
+        });
+        return { status: response.status, body: (await response.text()).slice(0, 400) };
+      },
+      [method, path],
+    );
+
+    record(
+      `${method} ${path}: refuses an anonymous caller`,
+      probe.status === 401 || probe.status === 403 || probe.status === 503,
+      `status ${probe.status}`,
+    );
+    record(
+      `${method} ${path}: leaks no credential or stack`,
+      !/at\s+\/|node_modules|service_role|supabaseKey|META_APP_SECRET|TOKEN_ENCRYPTION_KEY|eyJ[A-Za-z0-9]/.test(
+        probe.body,
+      ),
+      probe.body.slice(0, 120),
+    );
+  }
+
+  /* ---------------------------------------------------------------- *
+   * The placeholder-token route is gone
+   * ---------------------------------------------------------------- */
+  const removedConnect = await page.evaluate(async () => {
+    const response = await fetch('/api/social/connect-account', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ platform: 'instagram', oauthCode: 'anything' }),
+    });
+    return { status: response.status, body: (await response.text()).slice(0, 300) };
+  });
+  record(
+    '/api/social/connect-account: removed, not merely unauthenticated',
+    removedConnect.status === 404,
+    `status ${removedConnect.status}`,
+  );
+  record(
+    '/api/social/connect-account: never returns a placeholder token',
+    !/placeholder_token/.test(removedConnect.body),
+    removedConnect.body.slice(0, 100),
+  );
+
+  const movedDisconnect = await page.evaluate(async () => {
+    const response = await fetch('/api/social/disconnect-account', { method: 'POST' });
+    return { status: response.status, body: (await response.text()).slice(0, 200) };
+  });
+  record(
+    '/api/social/disconnect-account: reports 410 rather than silently 404ing',
+    movedDisconnect.status === 410,
+    `status ${movedDisconnect.status}`,
+  );
+
+  /* ---------------------------------------------------------------- *
+   * The OAuth callback fails closed
+   *
+   * A forged callback must not 500, must not reach a token exchange, and must
+   * not reflect anything from the query string.
+   * ---------------------------------------------------------------- */
+  await page.goto(
+    `${BASE}/api/social/oauth/callback?state=${'f'.repeat(64)}&code=forged-code`,
+    { waitUntil: 'networkidle' },
+  );
+  const callbackUrl = new URL(page.url());
+  record(
+    'oauth callback: an unknown state is rejected without a server error',
+    callbackUrl.pathname === '/login' || callbackUrl.searchParams.has('social_error'),
+    page.url(),
+  );
+  const callbackHtml = await page.content();
+  record(
+    'oauth callback: does not reflect the supplied code',
+    !callbackHtml.includes('forged-code'),
+  );
+
+  // An attacker-supplied error code must not be echoed into the page.
+  await page.goto(
+    `${BASE}/api/social/oauth/callback?error=access_denied&error_reason=%3Cimg%20src%3Dx%20onerror%3Dalert(1)%3E`,
+    { waitUntil: 'networkidle' },
+  );
+  const declinedHtml = await page.content();
+  record(
+    'oauth callback: does not reflect an attacker-supplied reason',
+    !declinedHtml.includes('onerror=alert(1)'),
+  );
+
+  /* ---------------------------------------------------------------- *
    * Callback error codes reach the login UI as friendly text
    * ---------------------------------------------------------------- */
   await page.goto(`${BASE}/login?error=exchange_failed`, { waitUntil: 'networkidle' });

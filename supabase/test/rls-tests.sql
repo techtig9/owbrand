@@ -449,6 +449,418 @@ begin
   insert into _results values ('credits: refund writes a ledger entry', entries = 1, format('%s entries', entries));
 end $$;
 
+
+-- ===========================================================================
+-- Phase 3 — publishing, leases and OAuth state
+-- ===========================================================================
+-- The properties asserted here cannot be checked from application code:
+-- whether the claim really is atomic, whether RLS really keeps one tenant out
+-- of another's queue, and whether the state machine in
+-- complete_publishing_job() actually holds.
+-- ---------------------------------------------------------------------------
+
+reset role;
+reset request.jwt.claim.sub;
+
+-- Alice and Bob each get a connected account and a queued post.
+insert into public.social_accounts
+  (id, user_id, brand_id, platform, account_name, external_account_id, external_page_id,
+   access_token_ciphertext, granted_scopes, status)
+values
+  ('a0000000-0000-0000-0000-0000000000a1', :'user_a', 'aaaaaaaa-0000-0000-0000-000000000001',
+   'instagram', 'alice_ig', 'ig_alice', 'page_alice', 'v1.aaa.bbb.ccc',
+   array['instagram_basic','instagram_content_publish','pages_show_list','pages_read_engagement','business_management'], 'active'),
+  ('b0000000-0000-0000-0000-0000000000b1', :'user_b', 'bbbbbbbb-0000-0000-0000-000000000001',
+   'instagram', 'bob_ig', 'ig_bob', 'page_bob', 'v1.ddd.eee.fff',
+   array['instagram_basic'], 'needs_reconnect');
+
+insert into public.social_posts (id, brand_id, platform, status, caption, media_urls, idempotency_key)
+values
+  ('a0000000-0000-0000-0000-0000000000a2', 'aaaaaaaa-0000-0000-0000-000000000001',
+   'instagram', 'queued', 'alice caption', '["https://cdn.test/a.jpg"]'::jsonb, 'idem-alice-1'),
+  ('b0000000-0000-0000-0000-0000000000b2', 'bbbbbbbb-0000-0000-0000-000000000001',
+   'instagram', 'queued', 'bob caption', '["https://cdn.test/b.jpg"]'::jsonb, 'idem-bob-1');
+
+insert into public.publishing_jobs
+  (id, social_post_id, brand_id, social_account_id, platform, status, idempotency_key, max_attempts)
+values
+  ('a0000000-0000-0000-0000-0000000000a3', 'a0000000-0000-0000-0000-0000000000a2',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-0000000000a1',
+   'instagram', 'queued', 'idem-alice-1', 5),
+  ('b0000000-0000-0000-0000-0000000000b3', 'b0000000-0000-0000-0000-0000000000b2',
+   'bbbbbbbb-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-0000000000b1',
+   'instagram', 'queued', 'idem-bob-1', 5);
+
+-- --- Schema guarantees -----------------------------------------------------
+do $$
+declare ok boolean := false;
+begin
+  -- Duplicate idempotency key must be impossible: a second social post for the
+  -- same key would publish the same content twice.
+  begin
+    insert into public.social_posts (brand_id, platform, status, idempotency_key)
+    values ('aaaaaaaa-0000-0000-0000-000000000001', 'instagram', 'queued', 'idem-alice-1');
+  exception when unique_violation then ok := true;
+  end;
+  insert into _results values ('publishing: duplicate post idempotency key rejected', ok,
+    case when ok then 'unique violation raised' else 'DUPLICATE POST ALLOWED' end);
+
+  ok := false;
+  begin
+    insert into public.publishing_jobs (social_post_id, platform, status, idempotency_key)
+    values ('a0000000-0000-0000-0000-0000000000a2', 'instagram', 'queued', 'idem-alice-1');
+  exception when unique_violation then ok := true;
+  end;
+  insert into _results values ('publishing: duplicate job idempotency key rejected', ok,
+    case when ok then 'unique violation raised' else 'DUPLICATE JOB ALLOWED' end);
+
+  ok := false;
+  begin
+    update public.publishing_jobs set status = 'not_a_status'
+     where id = 'a0000000-0000-0000-0000-0000000000a3';
+  exception when check_violation then ok := true;
+  end;
+  insert into _results values ('publishing: job status constrained', ok,
+    case when ok then 'check violation raised' else 'ARBITRARY STATUS ACCEPTED' end);
+
+  ok := false;
+  begin
+    update public.social_accounts set status = 'whatever'
+     where id = 'a0000000-0000-0000-0000-0000000000a1';
+  exception when check_violation then ok := true;
+  end;
+  insert into _results values ('social: account status constrained', ok,
+    case when ok then 'check violation raised' else 'ARBITRARY STATUS ACCEPTED' end);
+end $$;
+
+-- --- Atomic claim ----------------------------------------------------------
+do $$
+declare
+  first_batch integer;
+  second_batch integer;
+  leased_by text;
+  lease_until timestamptz;
+begin
+  select count(*) into first_batch
+    from public.claim_publishing_jobs('worker-one', 10, 300);
+  insert into _results values ('publishing: worker claims both due jobs', first_batch = 2,
+    format('claimed %s', first_batch));
+
+  -- THE property that matters. A second worker running while the first holds
+  -- its lease must get nothing: a social post cannot be un-published.
+  select count(*) into second_batch
+    from public.claim_publishing_jobs('worker-two', 10, 300);
+  insert into _results values ('publishing: second worker claims nothing while leased', second_batch = 0,
+    format('claimed %s', second_batch));
+
+  select locked_by, locked_until into leased_by, lease_until
+    from public.publishing_jobs where id = 'a0000000-0000-0000-0000-0000000000a3';
+  insert into _results values ('publishing: lease records the holder', leased_by = 'worker-one',
+    format('locked_by %s', coalesce(leased_by, 'null')));
+  insert into _results values ('publishing: lease has a future expiry', lease_until > now(),
+    format('locked_until %s', lease_until));
+
+  -- A crashed worker must not strand the job forever.
+  update public.publishing_jobs
+     set locked_until = now() - interval '1 minute'
+   where id = 'a0000000-0000-0000-0000-0000000000a3';
+
+  select count(*) into second_batch
+    from public.claim_publishing_jobs('worker-three', 10, 300);
+  insert into _results values ('publishing: expired lease is reclaimable', second_batch = 1,
+    format('reclaimed %s', second_batch));
+end $$;
+
+-- --- Scheduling and backoff gating ----------------------------------------
+do $$
+declare claimed integer;
+begin
+  -- Release both jobs, then push one into the future.
+  update public.publishing_jobs
+     set status = 'queued', locked_until = null, locked_by = null, next_attempt_at = null, scheduled_for = null;
+
+  update public.publishing_jobs
+     set scheduled_for = now() + interval '1 day'
+   where id = 'a0000000-0000-0000-0000-0000000000a3';
+
+  select count(*) into claimed from public.claim_publishing_jobs('worker-four', 10, 300);
+  insert into _results values ('publishing: future-scheduled job is not claimed', claimed = 1,
+    format('claimed %s of 2', claimed));
+
+  update public.publishing_jobs
+     set status = 'queued', locked_until = null, locked_by = null, scheduled_for = null;
+
+  -- A job backing off after a retryable failure must wait its turn.
+  update public.publishing_jobs
+     set next_attempt_at = now() + interval '1 hour'
+   where id = 'a0000000-0000-0000-0000-0000000000a3';
+
+  select count(*) into claimed from public.claim_publishing_jobs('worker-five', 10, 300);
+  insert into _results values ('publishing: backing-off job is not claimed', claimed = 1,
+    format('claimed %s of 2', claimed));
+
+  update public.publishing_jobs
+     set status = 'queued', locked_until = null, locked_by = null, next_attempt_at = null, attempts = 0;
+
+  -- Exhausted attempts must never be retried again.
+  update public.publishing_jobs
+     set attempts = 5, max_attempts = 5
+   where id = 'a0000000-0000-0000-0000-0000000000a3';
+
+  select count(*) into claimed from public.claim_publishing_jobs('worker-six', 10, 300);
+  insert into _results values ('publishing: exhausted job is not claimed', claimed = 1,
+    format('claimed %s of 2', claimed));
+
+  update public.publishing_jobs
+     set status = 'queued', locked_until = null, locked_by = null, attempts = 0, max_attempts = 5;
+end $$;
+
+-- --- complete_publishing_job() state machine -------------------------------
+do $$
+declare
+  job public.publishing_jobs;
+  post_status text;
+  attempt_rows integer;
+begin
+  -- A retryable failure schedules another attempt and releases the lease.
+  perform public.claim_publishing_jobs('worker-seven', 10, 300);
+
+  job := public.complete_publishing_job(
+    'a0000000-0000-0000-0000-0000000000a3', 'retryable_failure',
+    null, null, 'retryable', 'meta_http_500', 'Meta is having a moment.', null, 120, 60);
+
+  insert into _results values ('publishing: retryable failure requeues', job.status = 'queued',
+    format('status %s', job.status));
+  insert into _results values ('publishing: retryable failure counts the attempt', job.attempts = 1,
+    format('attempts %s', job.attempts));
+  insert into _results values ('publishing: retryable failure releases the lease', job.locked_until is null,
+    format('locked_until %s', coalesce(job.locked_until::text, 'null')));
+  insert into _results values ('publishing: retry is scheduled in the future', job.next_attempt_at > now(),
+    format('next_attempt_at %s', coalesce(job.next_attempt_at::text, 'null')));
+
+  select count(*) into attempt_rows from public.publishing_attempts
+   where publishing_job_id = 'a0000000-0000-0000-0000-0000000000a3';
+  insert into _results values ('publishing: every attempt is logged', attempt_rows = 1,
+    format('%s attempt rows', attempt_rows));
+
+  -- The attempt ceiling is enforced by the function, not the caller: a worker
+  -- that keeps calling cannot exceed it.
+  update public.publishing_jobs set attempts = 4, next_attempt_at = null
+   where id = 'a0000000-0000-0000-0000-0000000000a3';
+
+  job := public.complete_publishing_job(
+    'a0000000-0000-0000-0000-0000000000a3', 'retryable_failure',
+    null, null, 'retryable', 'meta_http_500', 'Still broken.', null, 90, 60);
+
+  insert into _results values ('publishing: fifth retryable attempt fails the job', job.status = 'failed',
+    format('status %s after %s attempts', job.status, job.attempts));
+  insert into _results values ('publishing: exhausted job schedules no retry', job.next_attempt_at is null,
+    format('next_attempt_at %s', coalesce(job.next_attempt_at::text, 'null')));
+
+  select status into post_status from public.social_posts
+   where id = 'a0000000-0000-0000-0000-0000000000a2';
+  insert into _results values ('publishing: failed job fails the post', post_status = 'failed',
+    format('post status %s', post_status));
+
+  -- A permanent failure never retries, whatever the attempt count.
+  update public.publishing_jobs
+     set status = 'claimed', attempts = 0, next_attempt_at = null
+   where id = 'b0000000-0000-0000-0000-0000000000b3';
+
+  job := public.complete_publishing_job(
+    'b0000000-0000-0000-0000-0000000000b3', 'needs_reconnect',
+    null, null, 'needs_reconnect', 'meta_auth_190', 'Token expired.', null, 40, null);
+
+  insert into _results values ('publishing: needs_reconnect fails without retrying', job.status = 'failed',
+    format('status %s at attempt %s', job.status, job.attempts));
+
+  -- Success writes the external ids through to the user-visible post.
+  update public.publishing_jobs
+     set status = 'claimed', attempts = 0, next_attempt_at = null
+   where id = 'a0000000-0000-0000-0000-0000000000a3';
+
+  job := public.complete_publishing_job(
+    'a0000000-0000-0000-0000-0000000000a3', 'published',
+    'ig_17900000000000000', 'https://instagram.com/p/abc', null, null, null,
+    '{"id":"ig_17900000000000000"}'::jsonb, 850, null);
+
+  insert into _results values ('publishing: success marks the job published', job.status = 'published',
+    format('status %s', job.status));
+
+  select status into post_status from public.social_posts
+   where id = 'a0000000-0000-0000-0000-0000000000a2';
+  insert into _results values ('publishing: success marks the post published', post_status = 'published',
+    format('post status %s', post_status));
+
+  perform 1 from public.social_posts
+   where id = 'a0000000-0000-0000-0000-0000000000a2'
+     and external_post_id = 'ig_17900000000000000'
+     and external_url = 'https://instagram.com/p/abc'
+     and published_at is not null
+     and last_error is null;
+  insert into _results values ('publishing: success records external ids and clears the error', found, '');
+
+  -- An unknown outcome must be rejected rather than silently stored.
+  declare ok boolean := false;
+  begin
+    begin
+      job := public.complete_publishing_job('a0000000-0000-0000-0000-0000000000a3', 'went_fine');
+    exception when others then ok := true;
+    end;
+    insert into _results values ('publishing: unknown outcome rejected', ok,
+      case when ok then 'raised' else 'ACCEPTED UNKNOWN OUTCOME' end);
+  end;
+end $$;
+
+-- --- OAuth state -----------------------------------------------------------
+do $$
+declare
+  consumed integer;
+  ok boolean := false;
+begin
+  -- psql :'var' interpolation does not reach inside a DO block, so the fixture
+  -- ids are written out literally here.
+  insert into public.oauth_states (state, user_id, provider, requested_scopes, return_to)
+  values ('state-alice-fresh', '11111111-1111-1111-1111-111111111111', 'meta', array['instagram_basic'], '/dashboard/settings'),
+         ('state-alice-expired', '11111111-1111-1111-1111-111111111111', 'meta', array['instagram_basic'], '/dashboard/settings');
+
+  update public.oauth_states set expires_at = now() - interval '1 minute'
+   where state = 'state-alice-expired';
+
+  -- The consume query the callback runs: unconsumed AND unexpired.
+  with claimed as (
+    update public.oauth_states set consumed_at = now()
+     where state = 'state-alice-fresh' and provider = 'meta'
+       and consumed_at is null and expires_at > now()
+    returning 1
+  ) select count(*) into consumed from claimed;
+  insert into _results values ('oauth: fresh state is consumable once', consumed = 1,
+    format('consumed %s', consumed));
+
+  -- Replay of the same callback URL must fail — this is the account-linking
+  -- attack the state exists to stop.
+  with claimed as (
+    update public.oauth_states set consumed_at = now()
+     where state = 'state-alice-fresh' and provider = 'meta'
+       and consumed_at is null and expires_at > now()
+    returning 1
+  ) select count(*) into consumed from claimed;
+  insert into _results values ('oauth: consumed state cannot be replayed', consumed = 0,
+    format('consumed %s', consumed));
+
+  with claimed as (
+    update public.oauth_states set consumed_at = now()
+     where state = 'state-alice-expired' and provider = 'meta'
+       and consumed_at is null and expires_at > now()
+    returning 1
+  ) select count(*) into consumed from claimed;
+  insert into _results values ('oauth: expired state is rejected', consumed = 0,
+    format('consumed %s', consumed));
+
+  -- A state row cannot outlive its user.
+  ok := false;
+  begin
+    insert into public.oauth_states (state, user_id, provider)
+    values ('state-orphan', '99999999-9999-9999-9999-999999999999', 'meta');
+  exception when foreign_key_violation then ok := true;
+  end;
+  insert into _results values ('oauth: state requires a real user', ok,
+    case when ok then 'fk violation raised' else 'ORPHAN STATE ALLOWED' end);
+end $$;
+
+-- --- RLS: tenant isolation on the new tables -------------------------------
+set role authenticated;
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+do $$
+declare n integer;
+begin
+  select count(*) into n from public.social_posts;
+  insert into _results values ('rls: Alice sees only her own social posts', n = 1, format('%s rows', n));
+
+  select count(*) into n from public.social_posts
+   where brand_id = 'bbbbbbbb-0000-0000-0000-000000000001';
+  insert into _results values ('rls: Alice cannot read Bob''s social posts', n = 0, format('%s rows', n));
+
+  select count(*) into n from public.publishing_jobs;
+  insert into _results values ('rls: Alice sees only her own publishing jobs', n = 1, format('%s rows', n));
+
+  select count(*) into n from public.publishing_attempts;
+  insert into _results values ('rls: Alice sees only her own publish attempts', n > 0 and n = (
+    select count(*) from public.publishing_attempts
+     where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001'), format('%s rows', n));
+
+  select count(*) into n from public.social_accounts;
+  insert into _results values ('rls: Alice sees only her own connected accounts', n = 1, format('%s rows', n));
+
+  select count(*) into n from public.oauth_states;
+  insert into _results values ('rls: Alice sees only her own oauth states', n = 2, format('%s rows', n));
+end $$;
+
+-- A tenant must be able to READ why their post failed but never rewrite the
+-- job — otherwise they could reset attempts and bypass the ceiling.
+do $$
+declare updated integer;
+begin
+  update public.publishing_jobs set attempts = 0, max_attempts = 99 where true;
+  get diagnostics updated = row_count;
+  insert into _results values ('rls: tenant cannot rewrite publishing jobs', updated = 0,
+    format('%s rows updated', updated));
+
+  update public.social_posts set status = 'published', external_post_id = 'forged'
+   where brand_id = 'bbbbbbbb-0000-0000-0000-000000000001';
+  get diagnostics updated = row_count;
+  insert into _results values ('rls: tenant cannot forge another tenant''s post', updated = 0,
+    format('%s rows updated', updated));
+end $$;
+
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+
+do $$
+declare n integer;
+begin
+  select count(*) into n from public.oauth_states;
+  insert into _results values ('rls: Bob cannot read Alice''s oauth states', n = 0, format('%s rows', n));
+
+  select count(*) into n from public.social_accounts
+   where id = 'a0000000-0000-0000-0000-0000000000a1';
+  insert into _results values ('rls: Bob cannot read Alice''s connected account', n = 0, format('%s rows', n));
+end $$;
+
+-- Cleo shares Alice's workspace, so the team calendar must be visible to her.
+set request.jwt.claim.sub = '33333333-3333-3333-3333-333333333333';
+
+do $$
+declare n integer;
+begin
+  select count(*) into n from public.social_posts
+   where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001';
+  insert into _results values ('rls: workspace member CAN read the shared calendar', n = 1, format('%s rows', n));
+
+  select count(*) into n from public.social_posts
+   where brand_id = 'bbbbbbbb-0000-0000-0000-000000000001';
+  insert into _results values ('rls: workspace member still cannot read Bob''s posts', n = 0, format('%s rows', n));
+end $$;
+
+set role anon;
+reset request.jwt.claim.sub;
+
+do $$
+declare n integer;
+begin
+  select count(*) into n from public.social_accounts;
+  insert into _results values ('rls: anonymous cannot read connected accounts', n = 0, format('%s rows', n));
+
+  select count(*) into n from public.oauth_states;
+  insert into _results values ('rls: anonymous cannot read oauth states', n = 0, format('%s rows', n));
+
+  select count(*) into n from public.social_posts;
+  insert into _results values ('rls: anonymous cannot read social posts', n = 0, format('%s rows', n));
+end $$;
+
+reset role;
+reset request.jwt.claim.sub;
+
 -- ---------------------------------------------------------------------------
 -- Report
 -- ---------------------------------------------------------------------------

@@ -1,63 +1,87 @@
+import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { getCurrentUser } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
+import { accessibleBrandIds } from '@/lib/auth/guards';
+import { isConfigured } from '@/lib/env';
+import { PublishQueue } from '@/components/social/PublishQueue';
 import { EmptyState } from '@/components/dashboard/shared';
 
-const STATUS_STYLES: Record<string, string> = {
-  queued: 'bg-lavender-200 text-ink',
-  published: 'bg-mint-100 text-ink',
-  failed: 'bg-blush-100 text-ink',
-  cancelled: 'bg-canvas-alt text-ink-faint',
-};
+export const dynamic = 'force-dynamic';
 
-export default async function SchedulerPage() {
+/**
+ * The scheduler.
+ *
+ * Reads the queue the worker actually publishes from. The version this
+ * replaces queried `scheduled_posts` scoped to `user_id` — a table with no
+ * worker behind it, and a scope that hid a workspace's shared calendar from
+ * everyone but its creator.
+ */
+export default async function SchedulerPage({ searchParams }: { searchParams: { brand?: string } }) {
   const user = await getCurrentUser();
-  const supabase = supabaseAdmin();
-  const { data: posts } = await supabase
-    .from('scheduled_posts')
-    .select('id, platform, scheduled_at, status, content_assets(type, caption)')
-    .eq('user_id', user!.id)
-    .order('scheduled_at', { ascending: true });
+  if (!user) redirect('/login');
+
+  const db = supabaseAdmin();
+  const accessible = await accessibleBrandIds(user.id, db);
+
+  if (accessible.length === 0) {
+    return (
+      <div className="mx-auto max-w-5xl space-y-6">
+        <Header />
+        <EmptyState
+          title="No brand yet"
+          body="Posts are scheduled against a brand. Build a Brand Brain first."
+          action={
+            <Link href="/dashboard/ai-generator" className="btn-primary">
+              Build my brand
+            </Link>
+          }
+        />
+      </div>
+    );
+  }
+
+  const requested = searchParams.brand;
+  const brandId = requested && accessible.includes(requested) ? requested : undefined;
+
+  // Whether anything drains the queue is an operator fact the user should not
+  // have to infer from posts silently never going out.
+  const workerConfigured = isConfigured.publishingWorker();
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-2xl font-bold text-ink">Scheduler</h1>
-        <p className="mt-1 text-sm text-ink-soft">Auto-post queued content to your connected accounts.</p>
-      </div>
+    <div className="mx-auto max-w-5xl space-y-6">
+      <Header />
 
-      {!posts?.length ? (
-        <EmptyState
-          title="Nothing scheduled"
-          body="Generate an asset in the Content Studio, then queue it here to auto-publish at a chosen time."
-        />
-      ) : (
-        <div className="overflow-hidden rounded-2xl border border-line bg-white">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-line bg-canvas-alt text-xs uppercase tracking-wide text-ink-faint">
-              <tr>
-                <th className="px-5 py-3 font-medium">Asset</th>
-                <th className="px-5 py-3 font-medium">Platform</th>
-                <th className="px-5 py-3 font-medium">Scheduled for</th>
-                <th className="px-5 py-3 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {posts.map((post: any) => (
-                <tr key={post.id} className="border-b border-line last:border-0">
-                  <td className="px-5 py-3">{post.content_assets?.caption ?? post.content_assets?.type ?? '—'}</td>
-                  <td className="px-5 py-3 capitalize text-ink-soft">{post.platform}</td>
-                  <td className="px-5 py-3 text-ink-soft">{new Date(post.scheduled_at).toLocaleString()}</td>
-                  <td className="px-5 py-3">
-                    <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_STYLES[post.status]}`}>
-                      {post.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {!workerConfigured && (
+        <div role="alert" className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Publishing is paused</p>
+          <p className="mt-1 text-sm leading-6 text-ink-soft">
+            The publishing worker is not configured on this server, so scheduling is disabled and nothing queued
+            would be sent. An operator needs to set{' '}
+            <code className="rounded bg-white px-1 py-0.5 font-mono text-[11px]">CRON_SECRET</code> and point a
+            scheduler at <code className="rounded bg-white px-1 py-0.5 font-mono text-[11px]">/api/cron/publish</code>.
+          </p>
         </div>
       )}
+
+      <PublishQueue brandId={brandId} />
+    </div>
+  );
+}
+
+function Header() {
+  return (
+    <div className="flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <p className="section-eyebrow">Scheduler</p>
+        <h1 className="mt-3 font-display text-3xl font-bold">Publishing queue</h1>
+        <p className="mt-1 text-sm text-ink-soft">
+          Everything queued, published, or failed — with what the platform actually said.
+        </p>
+      </div>
+      <Link href="/dashboard/connections" className="btn-ghost shrink-0">
+        Connected accounts
+      </Link>
     </div>
   );
 }
