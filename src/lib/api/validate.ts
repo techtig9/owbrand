@@ -5,7 +5,7 @@
  * become a 400 with field-level detail (safe to expose — it describes only what
  * the caller sent), never an unhandled throw.
  */
-import { z, type ZodType } from 'zod';
+import { z, type ZodTypeAny, type output as ZodOutput } from 'zod';
 import { ApiError } from '@/lib/api/errors';
 
 const MAX_BODY_BYTES = 1_000_000; // 1 MB — JSON bodies are metadata, not uploads.
@@ -15,7 +15,21 @@ const MAX_BODY_BYTES = 1_000_000; // 1 MB — JSON bodies are metadata, not uplo
  * Rejects non-JSON content types, oversized payloads and malformed JSON before
  * the schema ever runs.
  */
-export async function parseJsonBody<T>(request: Request, schema: ZodType<T>): Promise<T> {
+/*
+ * NOTE ON THE GENERIC. These take the SCHEMA as the type parameter and derive
+ * the result with `z.output<S>`, rather than the more obvious
+ * `ZodType<T>` + `Promise<T>`.
+ *
+ * `ZodType<T>` expands to `ZodType<T, ZodTypeDef, T>`, so T has to satisfy the
+ * input AND the output type. TypeScript then picks the input — which for any
+ * schema using `.default()` or `.transform()` still has those fields optional.
+ * Call sites ended up with `string | undefined` for a field the schema
+ * guarantees, and had to re-check values Zod had already filled in.
+ */
+export async function parseJsonBody<S extends ZodTypeAny>(
+  request: Request,
+  schema: S
+): Promise<ZodOutput<S>> {
   const contentType = request.headers.get('content-type') ?? '';
   if (!contentType.toLowerCase().includes('application/json')) {
     throw ApiError.invalid('Expected a JSON request body.');
@@ -48,7 +62,7 @@ export async function parseJsonBody<T>(request: Request, schema: ZodType<T>): Pr
 }
 
 /** Validates already-materialised data against a schema. */
-export function validate<T>(schema: ZodType<T>, data: unknown): T {
+export function validate<S extends ZodTypeAny>(schema: S, data: unknown): ZodOutput<S> {
   const result = schema.safeParse(data);
   if (!result.success) {
     throw ApiError.invalid('Some of the details you sent were not valid.', {
@@ -59,7 +73,7 @@ export function validate<T>(schema: ZodType<T>, data: unknown): T {
 }
 
 /** Validates search params against a schema built from an object shape. */
-export function parseSearchParams<T>(request: Request, schema: ZodType<T>): T {
+export function parseSearchParams<S extends ZodTypeAny>(request: Request, schema: S): ZodOutput<S> {
   const url = new URL(request.url);
   const entries: Record<string, string> = {};
   url.searchParams.forEach((value, key) => {
