@@ -1,5 +1,8 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
 
+/** Live user data — never prerendered. See src/app/admin/page.tsx. */
+export const dynamic = 'force-dynamic';
+
 export default async function AdminUsersPage() {
   const supabase = supabaseAdmin();
   const { data: users } = await supabase

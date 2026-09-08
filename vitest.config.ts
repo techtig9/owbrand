@@ -8,6 +8,10 @@ import { fileURLToPath } from 'node:url';
  * dependency — keep it in sync with the `paths` entry in tsconfig.json.
  */
 export default defineConfig({
+  // tsconfig.json sets `jsx: "preserve"` because Next owns the JSX transform
+  // in the app build. Vitest has no such downstream step, so esbuild is told
+  // to compile JSX itself — without this, every .tsx test fails to parse.
+  esbuild: { jsx: 'automatic' },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
@@ -16,7 +20,10 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
-    include: ['tests/**/*.test.ts'],
+    // .tsx so React component tests live alongside the rest. Component
+    // files opt into jsdom with a `@vitest-environment jsdom` docblock; the
+    // default stays `node` so the ~200 logic tests keep their fast environment.
+    include: ['tests/**/*.test.ts', 'tests/**/*.test.tsx'],
     setupFiles: ['tests/setup.ts'],
     restoreMocks: true,
     clearMocks: true,

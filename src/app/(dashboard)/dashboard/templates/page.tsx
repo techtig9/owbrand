@@ -1,5 +1,15 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
 
+/**
+ * Templates are read per request rather than baked at build time.
+ *
+ * Without this, `next build` tries to prerender the page, calls
+ * `supabaseAdmin()` with no credentials available and the export fails. Even
+ * with credentials present, prerendering would freeze the template catalogue
+ * into the build artifact.
+ */
+export const dynamic = 'force-dynamic';
+
 export default async function TemplatesPage() {
   const supabase = supabaseAdmin();
   const { data: templates } = await supabase.from('templates').select('id, category, name').order('category');

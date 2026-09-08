@@ -1,5 +1,8 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
 
+/** Live payment data — never prerendered. See src/app/admin/page.tsx. */
+export const dynamic = 'force-dynamic';
+
 const STATUS_STYLES: Record<string, string> = {
   completed: 'bg-mint-100 text-ink',
   failed: 'bg-blush-100 text-ink',

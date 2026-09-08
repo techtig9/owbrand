@@ -1,6 +1,9 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { SubscriptionActions } from '@/components/admin/SubscriptionActions';
 
+/** Live subscription data — never prerendered. See src/app/admin/page.tsx. */
+export const dynamic = 'force-dynamic';
+
 export default async function AdminSubscriptionsPage() {
   const supabase = supabaseAdmin();
   const { data: subs } = await supabase

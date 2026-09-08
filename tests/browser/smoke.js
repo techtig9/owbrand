@@ -189,6 +189,62 @@ function record(name, passed, detail = '') {
   record('middleware: unauthenticated /admin redirects to /login', new URL(page.url()).pathname === '/login');
 
   /* ---------------------------------------------------------------- *
+   * Phase 2 screens are behind the same guard
+   *
+   * The Creative Studio, Website builder and Approvals inbox all read tenant
+   * data server-side. A new route that middleware does not match would render
+   * for an anonymous visitor, so each one is asserted rather than assumed.
+   * ---------------------------------------------------------------- */
+  for (const path of ['/dashboard/ai-studio', '/dashboard/website', '/dashboard/approvals']) {
+    await page.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
+    const target = new URL(page.url());
+    record(`middleware: ${path} redirects anonymous to /login`, target.pathname === '/login', page.url());
+    record(
+      `middleware: ${path} deep link preserved`,
+      target.searchParams.get('next') === path,
+      target.searchParams.get('next') || 'absent',
+    );
+  }
+
+  /* ---------------------------------------------------------------- *
+   * Phase 2 APIs refuse an unauthenticated caller
+   *
+   * These endpoints return brand-scoped data and accept mutations. What must
+   * never happen is a 200 or a stack trace; with Supabase unreachable the
+   * honest answers are 401 (no session cookie) or 503 (auth backend down).
+   * ---------------------------------------------------------------- */
+  for (const [method, path] of [
+    ['GET', '/api/approvals'],
+    ['POST', '/api/approvals'],
+    ['GET', '/api/website?brandId=11111111-1111-4111-8111-111111111111'],
+    ['PATCH', '/api/website/sections'],
+  ]) {
+    const probe = await page.evaluate(
+      async ([m, p]) => {
+        const response = await fetch(p, {
+          method: m,
+          headers: m === 'GET' ? {} : { 'content-type': 'application/json' },
+          body: m === 'GET' ? undefined : '{}',
+        });
+        return { status: response.status, body: (await response.text()).slice(0, 400) };
+      },
+      [method, path],
+    );
+
+    record(
+      `${method} ${path}: refuses an anonymous caller`,
+      probe.status === 401 || probe.status === 403 || probe.status === 503,
+      `status ${probe.status}`,
+    );
+    // A leaked stack trace or connection string would be a real disclosure.
+    record(
+      `${method} ${path}: error body leaks nothing`,
+      !/at\s+\/|node_modules|service_role|supabaseKey|eyJ[A-Za-z0-9]/.test(probe.body),
+      probe.body.slice(0, 120),
+    );
+  }
+
+  /* ---------------------------------------------------------------- *
    * Callback error codes reach the login UI as friendly text
    * ---------------------------------------------------------------- */
   await page.goto(`${BASE}/login?error=exchange_failed`, { waitUntil: 'networkidle' });

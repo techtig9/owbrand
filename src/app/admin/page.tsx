@@ -1,6 +1,17 @@
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { StatCard } from '@/components/dashboard/shared';
 
+/**
+ * Admin pages are always rendered per request.
+ *
+ * They read live tenant data with the service-role client, so a statically
+ * generated copy would be both stale and a snapshot of other people's data
+ * sitting in the build output. This also fixes `next build`, which was failing
+ * to export every /admin route because prerendering constructs the Supabase
+ * client before any request context exists.
+ */
+export const dynamic = 'force-dynamic';
+
 export default async function AdminOverviewPage() {
   const supabase = supabaseAdmin();
 
