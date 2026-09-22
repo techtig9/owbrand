@@ -48,3 +48,72 @@ Effort is engineering days for one person who knows this codebase.
 | 1    | **`export-zip` section source**         | Medium     | 1.5    | The archive streams correctly but omits generated section source, which has nowhere to be persisted yet. Needs a `site_section_source` table or blob storage, then the lookup where the route marks it. |
 | 2    | **Reconcile the legacy Tailwind names** | Low        | 1      | `canvas` / `ink` / `line` are aliased to tokens and marked deprecated. Removing them is mechanical but touches ~30 screens, so it wants its own commit.                                                 |
 | 3    | **The other ~20 screens, individually** | Low–Medium | 4      | They inherited the token system and the primitives and are consistent and accessible, but only the dashboard and `brand-kit` were reconsidered against the spec's per-screen layouts.                   |
+
+---
+
+## Phase 8 — product advantage: the ranking, and what was built
+
+Seven candidates, ranked by **differentiation × commercial value ÷ effort**.
+The first three are built; the rest are here with the reason they were not.
+
+| Rank | Item                        | Value          | Effort | Verdict                                         |
+| ---- | --------------------------- | -------------- | ------ | ----------------------------------------------- |
+| 1    | **Brand-consistency check** | High           | 2      | **BUILT**                                       |
+| 2    | **Brand-kit export**        | High           | 1.5    | **BUILT**                                       |
+| 3    | **Content calendar**        | Medium–High    | 2      | **BUILT**                                       |
+| 4    | On-brand post generation    | Low (marginal) | 1      | Not built — already exists                      |
+| 5    | Social-size templates       | Medium         | 2      | Not built — depends on an unconfigured provider |
+| 6    | Competitor monitoring       | Medium         | 5      | Not built — needs scraping infrastructure       |
+| 7    | Brand-voice fine-tuning     | Low            | 8      | Not built — wrong tool for the job              |
+
+### Why these three
+
+**1. Brand-consistency check.** The strongest differentiator in the list, and
+the one that makes the product's name mean something. A generator that reads a
+brand description is a wrapper around a model; something that takes copy from
+anywhere — an agency, a new hire, a previous tool — and says specifically where
+it departs from the brand is a different product. It also makes the Brand
+Brain load-bearing rather than decorative: every rule a customer adds makes
+this check sharper, which is a retention mechanic that costs nothing to run.
+
+Deliberately deterministic and free. Every finding is countable and quotes the
+exact text, so it is explainable, reproducible and usable a hundred times a
+day. A model returning "82% on brand" is unfalsifiable and therefore
+unactionable — nobody can fix an opinion.
+
+**2. Brand-kit export.** The highest perceived value per unit of effort here.
+"Send me the brand kit" is a request customers already make of each other, and
+answering it today means a meeting. The archive is organised by who opens it:
+tokens in three formats for a developer, a self-contained swatch sheet for a
+designer, and `VOICE.md` for a writer — the part that is usually lost entirely
+because it lives in a slide deck nobody can find. Generated from the Brand
+Brain, so the kit cannot disagree with what the product generates.
+
+**3. Content calendar.** Lower differentiation — every competitor has one —
+but it closes a real gap, and the nav was already lying about it: the entry
+labelled "Calendar" pointed at a list. It earns its place by answering
+something the list cannot, which is cadence. A list will happily show twelve
+posts without making it obvious that nine are on Tuesday and there is nothing
+for eleven days. That is a shape problem, so it needs a shape.
+
+### Why not the others
+
+**On-brand post generation** is already what `/api/ai/generate-content` does —
+it reads the full Brand Brain through `buildBrandContext`. Building a second
+entry point for it would be a new button over existing behaviour, which is the
+definition of a feature that adds surface without adding value.
+
+**Social-size templates** need image generation, and no image provider is
+configured (`IMAGE_PROVIDER_URL` / `IMAGE_PROVIDER_API_KEY` are unset — see
+`ROADMAP.md` → Integrations). Building the template picker now would ship a
+grid of sizes wired to an endpoint that returns 503. Worth doing the day a
+provider is chosen; the adapter is already provider-neutral.
+
+**Competitor monitoring** needs scraping or a paid data source, which is
+infrastructure and a legal question before it is code.
+
+**Brand-voice fine-tuning** is the wrong tool. A fine-tune costs real money per
+brand, takes hours, goes stale the moment the brand changes, and would be
+beaten by the prompt context that already exists plus the consistency check
+above. It is on the list because customers ask for it by name, not because it
+would work better.

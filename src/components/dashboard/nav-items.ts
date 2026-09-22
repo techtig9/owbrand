@@ -1,4 +1,5 @@
 import {
+  ListChecks,
   BarChart3,
   Brain,
   CalendarDays,
@@ -92,11 +93,24 @@ export const NAV_ITEMS: NavItem[] = [
     keywords: ['campaign', 'plan', 'launch'],
   },
   {
-    href: '/dashboard/scheduler',
+    href: '/dashboard/calendar',
     label: 'Calendar',
     icon: CalendarDays,
     group: 'Marketing',
-    keywords: ['schedule', 'queue', 'calendar', 'posts', 'publishing'],
+    keywords: ['calendar', 'month', 'schedule', 'plan', 'cadence', 'gaps'],
+  },
+  /*
+   * This was labelled "Calendar" while pointing at a list. Now that a real
+   * month view exists, the label has to move with it — two entries where the
+   * wrong one is called Calendar is worse than the original, because someone
+   * looking for a calendar would find the list and conclude there isn't one.
+   */
+  {
+    href: '/dashboard/scheduler',
+    label: 'Queue',
+    icon: ListChecks,
+    group: 'Marketing',
+    keywords: ['schedule', 'queue', 'posts', 'publishing', 'failed', 'retry'],
   },
   {
     href: '/dashboard/connections',

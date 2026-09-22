@@ -23,6 +23,29 @@ export interface ChangelogEntry {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: '2026-09-22',
+    version: 'Phase 8',
+    changes: [
+      {
+        kind: 'added' as const,
+        text: 'A consistency check on the Brand Kit page. Paste any copy — a caption, an email, a page an agency wrote — and it tells you which banned words, forbidden claims and writing rules it breaks, quoting the exact text. Free, no credits, no AI call.',
+      },
+      {
+        kind: 'added' as const,
+        text: 'Download your brand kit as a zip: design tokens as CSS, Tailwind and SCSS, a self-contained palette sheet you can open in a browser, and a voice guide covering the words your brand does and does not use.',
+      },
+      {
+        kind: 'added' as const,
+        text: 'A month calendar showing everything scheduled and published, with the gaps. It names your longest upcoming gap and the day you have stacked posts — the things a queue sorted by date cannot show you.',
+      },
+      {
+        kind: 'fixed' as const,
+        text: 'The sidebar entry labelled “Calendar” opened a list, not a calendar. It is now called “Queue”, and Calendar opens the calendar.',
+      },
+    ],
+  },
+
+  {
+    date: '2026-09-22',
     version: 'Phase 7',
     changes: [
       {

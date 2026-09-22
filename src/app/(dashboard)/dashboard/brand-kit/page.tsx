@@ -5,6 +5,8 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { accessibleBrandIds } from '@/lib/auth/guards';
 import { Button, Card, EmptyState } from '@/components/ui';
 import { PageHeader } from '@/components/dashboard/shared';
+import { ConsistencyCheck } from '@/components/brand/ConsistencyCheck';
+import { BrandKitDownload } from '@/components/brand/BrandKitDownload';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,7 +62,11 @@ export default async function BrandKitPage({ searchParams }: { searchParams: { b
 
   return (
     <div className="space-y-8">
-      <PageHeader title={brand.name} description={brand.description ?? undefined} />
+      <PageHeader
+        title={brand.name}
+        description={brand.description ?? undefined}
+        actions={<BrandKitDownload brandId={brand.id} />}
+      />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="p-6">
@@ -130,6 +136,15 @@ export default async function BrandKitPage({ searchParams }: { searchParams: { b
           )}
         </Card>
       </div>
+
+      {/*
+        The consistency check lives HERE rather than on its own screen.
+        A brand kit is what people open when they are about to write
+        something or hand the brand to someone else, which is exactly the
+        moment the check is worth running — a separate page would be found
+        once and never revisited.
+      */}
+      <ConsistencyCheck brandId={brand.id} />
     </div>
   );
 }
