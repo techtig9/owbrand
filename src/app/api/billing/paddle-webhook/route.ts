@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { verifyPaddleWebhook } from '@/lib/paddle';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { PLANS } from '@/lib/plans';
+import { isConfigured } from '@/lib/env';
 import type { PlanId } from '@/types';
 import { logger, newRequestId } from '@/lib/logger';
 import { claimWebhookEvent, completeWebhookEvent, releaseWebhookEvent } from '@/lib/billing/webhook-store';
@@ -42,6 +43,29 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
   const requestId = newRequestId();
+
+  /*
+   * Refuse before anything reads configuration.
+   *
+   * Unguarded, `verifyPaddleWebhook` and `supabaseAdmin()` both throw
+   * MissingEnvError on a deployment with neither configured, and this handler
+   * is not wrapped in `routeHandler` (it has its own response contract that
+   * Paddle's retry logic reads), so the throw surfaced as a raw 500.
+   *
+   * 503 is the honest answer and the useful one: Paddle retries a 503, so a
+   * webhook that arrives during a misconfiguration is redelivered once the
+   * operator fixes it rather than being lost. Found by probing every route
+   * against a fresh clone with no environment set.
+   */
+  if (!isConfigured.billing() || !isConfigured.supabaseAdmin()) {
+    logger.error('paddle:webhook_unconfigured', new Error('billing or database not configured'), {
+      requestId,
+    });
+    return NextResponse.json(
+      { error: 'Billing is not configured on this deployment.' },
+      { status: 503 }
+    );
+  }
 
   // Generous, but stops a flood of unsigned junk from reaching signature
   // verification (which is CPU work).

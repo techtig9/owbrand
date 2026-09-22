@@ -65,6 +65,29 @@ export async function GET(request: Request) {
     return redirectWith(FALLBACK_RETURN, { social_error: 'invalid_callback' });
   }
 
+  /*
+   * Configuration is checked BEFORE the admin client is constructed.
+   *
+   * `supabaseAdmin()` reads SUPABASE_SERVICE_ROLE_KEY and throws when it is
+   * unset. This handler is a plain `GET` rather than a `routeHandler`, because
+   * it must redirect a browser rather than return JSON — which also means the
+   * MissingEnvError -> 503 mapping does not apply to it. So on a deployment
+   * with no Supabase configured, the throw surfaced as a raw 500, directly
+   * contradicting this route's own guarantee that every failure redirects with
+   * a generic `social_error` code.
+   *
+   * Caught by the fresh-clone browser run, which is the only check that
+   * exercises this path with nothing configured. It passed for five phases
+   * because every environment it ran in had Supabase set — the same reason the
+   * cron endpoints leaked in Phase 2.
+   */
+  // BOTH: the admin client reads the public URL and the service-role key, so
+  // either being unset is the same 500.
+  if (!isConfigured.supabase() || !isConfigured.supabaseAdmin()) {
+    logger.warn('social:oauth_callback_unconfigured');
+    return redirectWith(FALLBACK_RETURN, { social_error: 'not_configured' });
+  }
+
   const db = supabaseAdmin();
 
   // Consume FIRST. Everything after this point runs at most once per state.

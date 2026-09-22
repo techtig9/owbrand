@@ -303,3 +303,54 @@ After deploying, in order. Each line is one thing that has actually broken here.
 11. **Create an API key in Settings, then `curl -H "Authorization: Bearer owb_live_…" https://<domain>/api/v1/brands`** → your brands. The same call with one character changed → 401 with the _same_ message as a revoked key.
 12. **`curl https://<domain>/api/v1/openapi.json | jq .info.version`** → `1.0.0`, and the `servers[0].url` is your domain, not a placeholder.
 13. **Add a webhook endpoint pointing at `https://webhook.site/<id>`, publish a post.** The delivery appears in Settings within a minute of the cron firing, and the `X-OwBrand-Signature` verifies against the raw body. If it never arrives, the webhook cron is not scheduled — see 5.3.
+
+---
+
+## 7. Final verification — five routes that 500'd when unconfigured
+
+The fresh-clone run at the end of Phase 9 found a class of bug that had
+survived every phase: **five routes returned a raw 500 when an environment
+variable was missing**, instead of a 503.
+
+| Route                              | What happened                                                                                                                                                       |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/social/oauth/callback`       | `supabaseAdmin()` threw before any config check. The route's own doc comment promises every failure redirects with a generic `social_error` code; this one did not. |
+| `/api/billing/paddle-webhook`      | Threw on both the signature secret and the database. Paddle retries a 503 and gives up on a 500, so the event was lost.                                             |
+| `/api/billing/subscription-status` | Not wrapped in `routeHandler`, so the `MissingEnvError` → 503 mapping never applied.                                                                                |
+| `/api/admin/list-users`            | As above.                                                                                                                                                           |
+| `/api/media/upload`                | As above.                                                                                                                                                           |
+
+**Why it mattered.** A 500 tells an operator the application is broken when
+the truth is that it is unconfigured, which sends them debugging the wrong
+thing. And a retrying caller — Paddle, a cron scheduler, a client with
+backoff — treats a recoverable state as permanent.
+
+**Why nothing caught it for nine phases.** Every environment these ran in had
+Supabase configured, so the failing path was never taken. Exactly the reason
+the cron endpoints leaked in Phase 2. The only check that exercises it is a
+fresh clone with nothing set.
+
+Three regression assertions now live in `tests/browser/smoke.js`, which probes
+over real HTTP. Two more live in `tests/api/unconfigured-routes.test.ts`; the
+two routes that read a session cookie are deliberately **not** asserted there,
+because calling their handler outside a request scope throws Next's own
+`cookies()` error long before any configuration is read — a green test that
+proves nothing is how the original bug survived.
+
+### The browser suite now skips rather than lies
+
+The suite also **aborted at assertion 88** on an unconfigured server:
+`page.goto` rejects on a non-2xx, so the OAuth-callback check killed the run
+and 85 later assertions never executed while the run still looked like a
+failure of one thing. That check now uses `fetch` with `redirect: 'manual'`,
+which can see the redirect directly.
+
+Nine assertions genuinely require a configured Supabase — the Google button
+cannot initiate a flow without a project, and the middleware deliberately
+redirects with `error=not_configured` instead of `?next=` when auth is
+unconfigured. They are now **skipped with a stated reason** rather than failed,
+and the summary prints the skip count plus a warning that a skipped run proves
+less than it looks. Failing them reports bugs that do not exist; passing them
+silently would claim coverage the suite never had.
+
+**Result: 164/164 passed, 0 failed, 9 skipped.**

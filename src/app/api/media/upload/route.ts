@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { routeHandler } from '@/lib/api/errors';
 import { z } from 'zod';
 import { getCurrentUser } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
@@ -10,7 +11,8 @@ const schema = z.object({
   contentType: z.string().regex(/^image\/(jpeg|png|webp|jpg)$/i),
 });
 
-export async function POST(req: Request) {
+/* Wrapped so a missing Supabase configuration is a 503, not a raw 500. */
+export const POST = routeHandler('/api/media/upload', async (req: Request) => {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 });
   const parsed = schema.safeParse(await req.json());
@@ -39,4 +41,4 @@ export async function POST(req: Request) {
   if (assetError) return NextResponse.json({ error: assetError.message }, { status: 500 });
 
   return NextResponse.json({ asset, path, token: data.token, bucket: 'owbrand-media' });
-}
+});

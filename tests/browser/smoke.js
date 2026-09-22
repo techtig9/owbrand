@@ -21,7 +21,7 @@ const path = require('node:path');
  */
 const AXE_SOURCE = fs.readFileSync(
   path.join(__dirname, '..', '..', 'node_modules', 'axe-core', 'axe.min.js'),
-  'utf8',
+  'utf8'
 );
 
 /**
@@ -50,7 +50,7 @@ async function auditAccessibility(page, label, record) {
   record(
     `a11y ${label}: no serious or critical WCAG violations`,
     blocking.length === 0,
-    blocking.map((v) => `${v.id} (${v.impact}, ${v.nodes} nodes)`).join(' | '),
+    blocking.map((v) => `${v.id} (${v.impact}, ${v.nodes} nodes)`).join(' | ')
   );
 
   return blocking;
@@ -74,11 +74,31 @@ async function auditAccessibility(page, label, record) {
 
 const BASE = process.env.BASE_URL || 'http://localhost:3100';
 const results = [];
+const skipped = [];
 
 function record(name, passed, detail = '') {
   results.push({ name, passed, detail });
   const mark = passed ? 'PASS' : 'FAIL';
   console.log(`${mark}  ${name}${passed || !detail ? '' : `   [${detail}]`}`);
+}
+
+/**
+ * Records an assertion as skipped, with the reason, and excludes it from the
+ * pass/fail totals.
+ *
+ * Needed because several assertions here REQUIRE a configured Supabase — the
+ * Google OAuth button cannot initiate a flow without it, and the middleware
+ * deliberately does not redirect when auth is unconfigured, which is correct
+ * behaviour rather than a bug. Failing them on an unconfigured deployment
+ * reports nine problems that do not exist; passing them silently would be
+ * worse, because the suite would claim to have verified auth it never touched.
+ *
+ * A skip is the honest third answer, and it prints loudly enough that nobody
+ * mistakes a skipped run for a clean one.
+ */
+function skip(name, reason) {
+  skipped.push({ name, reason });
+  console.log(`SKIP  ${name}   [${reason}]`);
 }
 
 (async () => {
@@ -117,9 +137,9 @@ function record(name, passed, detail = '') {
     'landing: hydrates (React root attached)',
     await page.evaluate(() =>
       Array.from(document.querySelectorAll('*')).some((el) =>
-        Object.keys(el).some((k) => k.startsWith('__react')),
-      ),
-    ),
+        Object.keys(el).some((k) => k.startsWith('__react'))
+      )
+    )
   );
   record('landing: has a title', (await page.title()).length > 0, await page.title());
 
@@ -133,7 +153,11 @@ function record(name, passed, detail = '') {
     const after = await yearly.getAttribute('class');
     // The active tab restyles itself, so a changed class proves the click was
     // handled by hydrated React rather than being swallowed.
-    record('landing: pricing toggle actually reacts to a click', before !== after, `class unchanged: ${after}`);
+    record(
+      'landing: pricing toggle actually reacts to a click',
+      before !== after,
+      `class unchanged: ${after}`
+    );
   } else {
     record('landing: pricing toggle present', false, 'toggle not found');
   }
@@ -147,20 +171,24 @@ function record(name, passed, detail = '') {
     ['/forgot-password', /reset your password/i],
   ]) {
     await page.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
-    record(`${path}: renders expected heading`, await page.getByRole('heading', { name: heading }).count() > 0);
+    record(
+      `${path}: renders expected heading`,
+      (await page.getByRole('heading', { name: heading }).count()) > 0
+    );
 
     const inputs = await page.locator('input').count();
     record(`${path}: has form inputs`, inputs > 0, `${inputs} inputs`);
 
     // Every input must have an accessible name (WCAG 4.1.2). The old FormField
     // wrapped the input in a bare <label> with no htmlFor/id association.
-    const unlabelled = await page.evaluate(() =>
-      Array.from(document.querySelectorAll('input')).filter((el) => {
-        if (el.type === 'hidden') return false;
-        const id = el.getAttribute('id');
-        const hasLabel = id && document.querySelector(`label[for="${id}"]`);
-        return !hasLabel && !el.getAttribute('aria-label') && !el.closest('label');
-      }).length,
+    const unlabelled = await page.evaluate(
+      () =>
+        Array.from(document.querySelectorAll('input')).filter((el) => {
+          if (el.type === 'hidden') return false;
+          const id = el.getAttribute('id');
+          const hasLabel = id && document.querySelector(`label[for="${id}"]`);
+          return !hasLabel && !el.getAttribute('aria-label') && !el.closest('label');
+        }).length
     );
     record(`${path}: every input has an accessible label`, unlabelled === 0, `${unlabelled} unlabelled`);
   }
@@ -177,6 +205,29 @@ function record(name, passed, detail = '') {
 
   const weakPasswordMessage = await page.getByText(/at least 8 characters/i).count();
   record('signup: rejects a weak password before submitting', weakPasswordMessage > 0);
+
+  /* ---------------------------------------------------------------- *
+   * Is auth actually configured?
+   *
+   * Read from the product's own answer rather than from an environment
+   * variable this process may not share with the server under test: with no
+   * Supabase configured the middleware redirects a protected route to
+   * `/login?error=not_configured` instead of `?next=`, deliberately, because
+   * preserving a deep link is pointless when nobody can sign in.
+   *
+   * Several assertions below REQUIRE a configured project — the Google button
+   * cannot initiate a flow without one. They are skipped rather than failed,
+   * because reporting nine bugs that do not exist is how a suite gets ignored;
+   * and skipped rather than passed, because a suite that claims to have
+   * verified auth it never touched is worse still.
+   * ---------------------------------------------------------------- */
+  const configProbe = await fetch(`${BASE}/dashboard/brand-brain`, { redirect: 'manual' });
+  const configLocation = configProbe.headers.get('location') ?? '';
+  const authConfigured = !configLocation.includes('error=not_configured');
+
+  if (!authConfigured) {
+    console.log('\nNOTE  Supabase is not configured on this server. Auth assertions will be SKIPPED.\n');
+  }
 
   /* ---------------------------------------------------------------- *
    * Google button reports failure instead of silently doing nothing
@@ -201,26 +252,35 @@ function record(name, passed, detail = '') {
   await googleButton.click();
   await page.waitForTimeout(4000);
 
-  record(
-    'login: Google click initiates a real OAuth authorize request',
-    authorizeUrl !== null,
-    authorizeUrl ? 'authorize request issued' : 'NO request issued — silent no-op',
-  );
-  record(
-    'login: OAuth request uses PKCE and our own callback',
-    Boolean(
-      authorizeUrl &&
+  if (!authConfigured) {
+    skip(
+      'login: Google click initiates a real OAuth authorize request',
+      'Supabase not configured — there is no project to authorize against'
+    );
+    skip('login: OAuth request uses PKCE and our own callback', 'Supabase not configured');
+  } else {
+    record(
+      'login: Google click initiates a real OAuth authorize request',
+      authorizeUrl !== null,
+      authorizeUrl ? 'authorize request issued' : 'NO request issued — silent no-op'
+    );
+    record(
+      'login: OAuth request uses PKCE and our own callback',
+      Boolean(
+        authorizeUrl &&
         /code_challenge=/.test(authorizeUrl) &&
         // Derived from BASE, not hard-coded. This was pinned to port 3100 and
         // failed the moment the suite ran on another port — reporting a PKCE
         // problem when the only difference was the port number. A test that
         // fails for a reason unrelated to its subject trains you to ignore it.
-        new RegExp(`redirect_to=${encodeURIComponent(`${BASE}/auth/callback`).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i').test(
-          authorizeUrl,
-        ),
-    ),
-    authorizeUrl ? decodeURIComponent(authorizeUrl).slice(0, 120) : 'n/a',
-  );
+        new RegExp(
+          `redirect_to=${encodeURIComponent(`${BASE}/auth/callback`).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+          'i'
+        ).test(authorizeUrl)
+      ),
+      authorizeUrl ? decodeURIComponent(authorizeUrl).slice(0, 120) : 'n/a'
+    );
+  }
 
   // Back to a known-good page for the remaining checks.
   await page.goto(`${BASE}/login`, { waitUntil: 'networkidle' });
@@ -231,11 +291,19 @@ function record(name, passed, detail = '') {
   await page.goto(`${BASE}/dashboard/brand-brain`, { waitUntil: 'networkidle' });
   const url = new URL(page.url());
   record('middleware: unauthenticated /dashboard redirects to /login', url.pathname === '/login', page.url());
-  record(
-    'middleware: preserves the deep link in ?next',
-    url.searchParams.get('next') === '/dashboard/brand-brain',
-    url.searchParams.get('next') || 'absent',
-  );
+
+  if (!authConfigured) {
+    skip(
+      'middleware: preserves the deep link in ?next',
+      'Supabase not configured — middleware redirects with error=not_configured by design'
+    );
+  } else {
+    record(
+      'middleware: preserves the deep link in ?next',
+      url.searchParams.get('next') === '/dashboard/brand-brain',
+      url.searchParams.get('next') || 'absent'
+    );
+  }
 
   await page.goto(`${BASE}/admin`, { waitUntil: 'networkidle' });
   record('middleware: unauthenticated /admin redirects to /login', new URL(page.url()).pathname === '/login');
@@ -251,11 +319,15 @@ function record(name, passed, detail = '') {
     await page.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
     const target = new URL(page.url());
     record(`middleware: ${path} redirects anonymous to /login`, target.pathname === '/login', page.url());
-    record(
-      `middleware: ${path} deep link preserved`,
-      target.searchParams.get('next') === path,
-      target.searchParams.get('next') || 'absent',
-    );
+    if (!authConfigured) {
+      skip(`middleware: ${path} deep link preserved`, 'Supabase not configured');
+    } else {
+      record(
+        `middleware: ${path} deep link preserved`,
+        target.searchParams.get('next') === path,
+        target.searchParams.get('next') || 'absent'
+      );
+    }
   }
 
   /* ---------------------------------------------------------------- *
@@ -280,19 +352,19 @@ function record(name, passed, detail = '') {
         });
         return { status: response.status, body: (await response.text()).slice(0, 400) };
       },
-      [method, path],
+      [method, path]
     );
 
     record(
       `${method} ${path}: refuses an anonymous caller`,
       probe.status === 401 || probe.status === 403 || probe.status === 503,
-      `status ${probe.status}`,
+      `status ${probe.status}`
     );
     // A leaked stack trace or connection string would be a real disclosure.
     record(
       `${method} ${path}: error body leaks nothing`,
       !/at\s+\/|node_modules|service_role|supabaseKey|eyJ[A-Za-z0-9]/.test(probe.body),
-      probe.body.slice(0, 120),
+      probe.body.slice(0, 120)
     );
   }
 
@@ -303,11 +375,15 @@ function record(name, passed, detail = '') {
     await page.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
     const target = new URL(page.url());
     record(`middleware: ${path} redirects anonymous to /login`, target.pathname === '/login', page.url());
-    record(
-      `middleware: ${path} deep link preserved`,
-      target.searchParams.get('next') === path,
-      target.searchParams.get('next') || 'absent',
-    );
+    if (!authConfigured) {
+      skip(`middleware: ${path} deep link preserved`, 'Supabase not configured');
+    } else {
+      record(
+        `middleware: ${path} deep link preserved`,
+        target.searchParams.get('next') === path,
+        target.searchParams.get('next') || 'absent'
+      );
+    }
   }
 
   /* ---------------------------------------------------------------- *
@@ -330,19 +406,19 @@ function record(name, passed, detail = '') {
           const response = await fetch(p, { method: 'POST', headers: h });
           return { status: response.status, body: (await response.text()).slice(0, 300) };
         },
-        [cronPath, headers],
+        [cronPath, headers]
       );
 
       record(
         `${cronPath}: refuses ${label}`,
         probe.status === 404 || probe.status === 503,
-        `status ${probe.status}`,
+        `status ${probe.status}`
       );
       // A 401 would confirm the endpoint exists and takes a secret.
       record(
         `${cronPath}: does not advertise itself to ${label}`,
         probe.status !== 401 && !/cron|worker|publish/i.test(probe.body),
-        probe.body.slice(0, 100),
+        probe.body.slice(0, 100)
       );
     }
 
@@ -360,12 +436,20 @@ function record(name, passed, detail = '') {
   await page.goto(`${BASE}/dashboard/analytics`, { waitUntil: 'networkidle' });
   {
     const target = new URL(page.url());
-    record('middleware: /dashboard/analytics redirects anonymous to /login', target.pathname === '/login', page.url());
     record(
-      'middleware: /dashboard/analytics deep link preserved',
-      target.searchParams.get('next') === '/dashboard/analytics',
-      target.searchParams.get('next') || 'absent',
+      'middleware: /dashboard/analytics redirects anonymous to /login',
+      target.pathname === '/login',
+      page.url()
     );
+    if (!authConfigured) {
+      skip('middleware: /dashboard/analytics deep link preserved', 'Supabase not configured');
+    } else {
+      record(
+        'middleware: /dashboard/analytics deep link preserved',
+        target.searchParams.get('next') === '/dashboard/analytics',
+        target.searchParams.get('next') || 'absent'
+      );
+    }
   }
 
   for (const [label, headers] of [
@@ -377,12 +461,12 @@ function record(name, passed, detail = '') {
         const response = await fetch(p, { method: 'POST', headers: h });
         return { status: response.status, body: (await response.text()).slice(0, 200) };
       },
-      ['/api/cron/analytics', headers],
+      ['/api/cron/analytics', headers]
     );
     record(
       `/api/cron/analytics: refuses ${label}`,
       probe.status === 404 || probe.status === 503,
-      `status ${probe.status}`,
+      `status ${probe.status}`
     );
   }
 
@@ -415,18 +499,18 @@ function record(name, passed, detail = '') {
           body: (await response.text()).slice(0, 400),
         };
       },
-      [method, path],
+      [method, path]
     );
 
     record(
       `${method} ${path}: refuses an anonymous caller`,
       probe.status === 401 || probe.status === 403 || probe.status === 503,
-      `status ${probe.status}`,
+      `status ${probe.status}`
     );
     record(
       `${method} ${path}: leaks no metrics or stack`,
       !/at\s+\/|node_modules|service_role|impressions|engagements|metric_date/.test(probe.body),
-      probe.body.slice(0, 120),
+      probe.body.slice(0, 120)
     );
   }
 
@@ -445,7 +529,7 @@ function record(name, passed, detail = '') {
     record(
       'GET /api/analytics/export: never returns a CSV attachment to an anonymous caller',
       !exportProbe.contentType.includes('text/csv') && !exportProbe.disposition.includes('attachment'),
-      `${exportProbe.status} ${exportProbe.contentType}`,
+      `${exportProbe.status} ${exportProbe.contentType}`
     );
   }
 
@@ -458,28 +542,25 @@ function record(name, passed, detail = '') {
    * must get past it. Skipped when the harness has no secret to present.
    */
   if (process.env.CRON_SECRET) {
-    const authorized = await page.evaluate(
-      async (secret) => {
-        const response = await fetch('/api/cron/publish', {
-          method: 'POST',
-          headers: { authorization: `Bearer ${secret}` },
-        });
-        return { status: response.status, body: (await response.text()).slice(0, 200) };
-      },
-      process.env.CRON_SECRET,
-    );
+    const authorized = await page.evaluate(async (secret) => {
+      const response = await fetch('/api/cron/publish', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${secret}` },
+      });
+      return { status: response.status, body: (await response.text()).slice(0, 200) };
+    }, process.env.CRON_SECRET);
 
     record(
       'cron guard discriminates: the correct secret is not refused as 404',
       authorized.status !== 404,
-      `status ${authorized.status}`,
+      `status ${authorized.status}`
     );
     // With Supabase unreachable the run itself fails, and reporting 500 rather
     // than a cheerful empty success is the intended behaviour.
     record(
       'cron: a failed run reports failure instead of a fake empty success',
       authorized.status === 500 || authorized.status === 200,
-      `status ${authorized.status} ${authorized.body.slice(0, 80)}`,
+      `status ${authorized.status} ${authorized.body.slice(0, 80)}`
     );
   }
 
@@ -505,20 +586,20 @@ function record(name, passed, detail = '') {
         });
         return { status: response.status, body: (await response.text()).slice(0, 400) };
       },
-      [method, path],
+      [method, path]
     );
 
     record(
       `${method} ${path}: refuses an anonymous caller`,
       probe.status === 401 || probe.status === 403 || probe.status === 503,
-      `status ${probe.status}`,
+      `status ${probe.status}`
     );
     record(
       `${method} ${path}: leaks no credential or stack`,
       !/at\s+\/|node_modules|service_role|supabaseKey|META_APP_SECRET|TOKEN_ENCRYPTION_KEY|eyJ[A-Za-z0-9]/.test(
-        probe.body,
+        probe.body
       ),
-      probe.body.slice(0, 120),
+      probe.body.slice(0, 120)
     );
   }
 
@@ -536,12 +617,12 @@ function record(name, passed, detail = '') {
   record(
     '/api/social/connect-account: removed, not merely unauthenticated',
     removedConnect.status === 404,
-    `status ${removedConnect.status}`,
+    `status ${removedConnect.status}`
   );
   record(
     '/api/social/connect-account: never returns a placeholder token',
     !/placeholder_token/.test(removedConnect.body),
-    removedConnect.body.slice(0, 100),
+    removedConnect.body.slice(0, 100)
   );
 
   const movedDisconnect = await page.evaluate(async () => {
@@ -551,7 +632,34 @@ function record(name, passed, detail = '') {
   record(
     '/api/social/disconnect-account: reports 410 rather than silently 404ing',
     movedDisconnect.status === 410,
-    `status ${movedDisconnect.status}`,
+    `status ${movedDisconnect.status}`
+  );
+
+  /* ---------------------------------------------------------------- *
+   * No route 500s because configuration is missing
+   *
+   * A 500 tells an operator the application is broken when the truth is that
+   * it is unconfigured, which sends them debugging the wrong thing. It also
+   * means a retrying caller (Paddle, a cron scheduler, a client with backoff)
+   * treats a recoverable state as a permanent failure.
+   *
+   * Five routes did this for nine phases, found only by probing a fresh clone
+   * with nothing set. These assertions are why it cannot come back.
+   * ---------------------------------------------------------------- */
+  for (const path of ['/api/billing/subscription-status', '/api/admin/list-users']) {
+    const probe = await fetch(`${BASE}${path}`);
+    record(`${path}: does not 500 when unconfigured`, probe.status !== 500, `status ${probe.status}`);
+  }
+
+  const webhookProbe = await fetch(`${BASE}/api/billing/paddle-webhook`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'paddle-signature': 'ts=1;h1=deadbeef' },
+    body: '{}',
+  });
+  record(
+    '/api/billing/paddle-webhook: does not 500 when unconfigured',
+    webhookProbe.status !== 500,
+    `status ${webhookProbe.status}`
   );
 
   /* ---------------------------------------------------------------- *
@@ -560,42 +668,63 @@ function record(name, passed, detail = '') {
    * A forged callback must not 500, must not reach a token exchange, and must
    * not reflect anything from the query string.
    * ---------------------------------------------------------------- */
-  await page.goto(
-    `${BASE}/api/social/oauth/callback?state=${'f'.repeat(64)}&code=forged-code`,
-    { waitUntil: 'networkidle' },
-  );
-  const callbackUrl = new URL(page.url());
+  /*
+   * Asserted with fetch and `redirect: 'manual'`, not page.goto.
+   *
+   * This endpoint answers with a 303 to an error page, and on a deployment
+   * with nothing configured that target is itself not a 2xx — so `page.goto`
+   * rejects with ERR_HTTP_RESPONSE_CODE_FAILURE and aborts the whole run
+   * before reaching any later assertion. That is the harness failing, not the
+   * product: the thing under test is the redirect itself, which fetch can see
+   * directly and goto cannot.
+   */
+  const forged = await fetch(`${BASE}/api/social/oauth/callback?state=${'f'.repeat(64)}&code=forged-code`, {
+    redirect: 'manual',
+  });
+  const forgedLocation = forged.headers.get('location') ?? '';
+
   record(
     'oauth callback: an unknown state is rejected without a server error',
-    callbackUrl.pathname === '/login' || callbackUrl.searchParams.has('social_error'),
-    page.url(),
+    forged.status === 303 && forgedLocation.includes('social_error='),
+    `status ${forged.status} -> ${forgedLocation || 'no location'}`
   );
-  const callbackHtml = await page.content();
+  record(
+    'oauth callback: does not 500 on a forged callback',
+    forged.status !== 500,
+    `status ${forged.status}`
+  );
   record(
     'oauth callback: does not reflect the supplied code',
-    !callbackHtml.includes('forged-code'),
+    !forgedLocation.includes('forged-code'),
+    forgedLocation
   );
 
-  // An attacker-supplied error code must not be echoed into the page.
-  await page.goto(
+  // An attacker-supplied error reason must not be echoed into the redirect.
+  const declined = await fetch(
     `${BASE}/api/social/oauth/callback?error=access_denied&error_reason=%3Cimg%20src%3Dx%20onerror%3Dalert(1)%3E`,
-    { waitUntil: 'networkidle' },
+    { redirect: 'manual' }
   );
-  const declinedHtml = await page.content();
+  const declinedLocation = declined.headers.get('location') ?? '';
   record(
     'oauth callback: does not reflect an attacker-supplied reason',
-    !declinedHtml.includes('onerror=alert(1)'),
+    !declinedLocation.includes('onerror') && !declinedLocation.includes('<img'),
+    declinedLocation
   );
 
   /* ---------------------------------------------------------------- *
    * Callback error codes reach the login UI as friendly text
    * ---------------------------------------------------------------- */
   await page.goto(`${BASE}/login?error=exchange_failed`, { waitUntil: 'networkidle' });
-  const alertText = (await page.locator('[role="alert"]').first().textContent().catch(() => '')) || '';
+  const alertText =
+    (await page
+      .locator('[role="alert"]')
+      .first()
+      .textContent()
+      .catch(() => '')) || '';
   record(
     'login: surfaces an OAuth callback error',
     /could not finish signing you in/i.test(alertText),
-    alertText.trim().slice(0, 80),
+    alertText.trim().slice(0, 80)
   );
 
   /*
@@ -628,19 +757,25 @@ function record(name, passed, detail = '') {
   page.off('dialog', onDialog);
 
   record('login: an attacker-supplied error code creates no element', injection.injectedElements === 0);
-  record('login: an attacker-supplied error code is not injected as markup', injection.rawTagInBody === false);
+  record(
+    'login: an attacker-supplied error code is not injected as markup',
+    injection.rawTagInBody === false
+  );
   record('login: an attacker-supplied error code executes nothing', dialogFired === false);
   record(
     'login: an unknown error code falls back to our own copy',
     /did not complete|could not/i.test(injection.visibleAlert),
-    injection.visibleAlert.slice(0, 80),
+    injection.visibleAlert.slice(0, 80)
   );
 
   /* ---------------------------------------------------------------- *
    * 404 page
    * ---------------------------------------------------------------- */
   await page.goto(`${BASE}/definitely-not-a-page`, { waitUntil: 'networkidle' });
-  record('404: renders the custom not-found page', (await page.getByText(/can.t find that page/i).count()) > 0);
+  record(
+    '404: renders the custom not-found page',
+    (await page.getByText(/can.t find that page/i).count()) > 0
+  );
 
   /* ---------------------------------------------------------------- *
    * Accessibility: automated WCAG audit on the reachable pages
@@ -685,12 +820,12 @@ function record(name, passed, detail = '') {
   record(
     'a11y: the first tab stop is a skip link',
     Boolean(skipLink && /skip to main/i.test(skipLink.text)),
-    skipLink ? skipLink.text : 'no focused element',
+    skipLink ? skipLink.text : 'no focused element'
   );
   record(
     'a11y: the skip link becomes visible when focused',
     Boolean(skipLink && skipLink.visible),
-    skipLink ? `visible=${skipLink.visible}` : 'n/a',
+    skipLink ? `visible=${skipLink.visible}` : 'n/a'
   );
 
   /*
@@ -729,12 +864,12 @@ function record(name, passed, detail = '') {
     record(
       `a11y ${target}: the skip link's target exists`,
       Boolean(skipTarget.hasLink && skipTarget.exists),
-      skipTarget.hasLink ? `href="#${skipTarget.id}" resolves=${skipTarget.exists}` : 'no skip link',
+      skipTarget.hasLink ? `href="#${skipTarget.id}" resolves=${skipTarget.exists}` : 'no skip link'
     );
     record(
       `a11y ${target}: the skip link lands on the main landmark`,
       Boolean(skipTarget.isLandmark),
-      `isLandmark=${skipTarget.isLandmark}`,
+      `isLandmark=${skipTarget.isLandmark}`
     );
   }
 
@@ -753,10 +888,10 @@ function record(name, passed, detail = '') {
     'a11y: a focused input has a visible indicator',
     Boolean(
       focusRing &&
-        ((focusRing.outlineStyle !== 'none' && parseFloat(focusRing.outlineWidth) >= 2) ||
-          (focusRing.boxShadow && focusRing.boxShadow !== 'none')),
+      ((focusRing.outlineStyle !== 'none' && parseFloat(focusRing.outlineWidth) >= 2) ||
+        (focusRing.boxShadow && focusRing.boxShadow !== 'none'))
     ),
-    focusRing ? `outline ${focusRing.outlineWidth} ${focusRing.outlineStyle}` : 'no input found',
+    focusRing ? `outline ${focusRing.outlineWidth} ${focusRing.outlineStyle}` : 'no input found'
   );
 
   /* ---------------------------------------------------------------- *
@@ -776,7 +911,7 @@ function record(name, passed, detail = '') {
   record(
     'theme: design tokens resolve on the page',
     Boolean(lightTokens.bg && lightTokens.text && lightTokens.primary),
-    JSON.stringify(lightTokens),
+    JSON.stringify(lightTokens)
   );
 
   // The spec mandates a deep indigo primary; a stale coral value would mean
@@ -784,7 +919,7 @@ function record(name, passed, detail = '') {
   record(
     'theme: the primary is the indigo the spec mandates',
     lightTokens.primary.toLowerCase().replace(/\s/g, '') === '#4338ca',
-    lightTokens.primary,
+    lightTokens.primary
   );
 
   await page.evaluate(() => {
@@ -805,12 +940,12 @@ function record(name, passed, detail = '') {
   record(
     'theme: a stored dark choice is applied before hydration',
     darkState.attribute === 'dark',
-    `data-theme=${darkState.attribute}`,
+    `data-theme=${darkState.attribute}`
   );
   record(
     'theme: dark tokens actually take effect',
     darkState.bg.toLowerCase() === '#0e1016',
-    `--color-bg=${darkState.bg}`,
+    `--color-bg=${darkState.bg}`
   );
 
   // The audit must pass in dark mode too — a theme is not finished until its
@@ -828,7 +963,7 @@ function record(name, passed, detail = '') {
     for (const path of ['/', '/login', '/signup', '/forgot-password', '/definitely-not-a-page']) {
       await page.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
       const overflow = await page.evaluate(
-        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth
       );
       record(`responsive ${width}px ${path}: no horizontal overflow`, overflow <= 1, `${overflow}px`);
     }
@@ -840,14 +975,25 @@ function record(name, passed, detail = '') {
   record(
     'no CSP violations blocking the app’s own scripts',
     cspViolations.length === 0,
-    cspViolations.slice(0, 2).join(' | '),
+    cspViolations.slice(0, 2).join(' | ')
   );
   record('no unexpected console errors', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' | '));
 
   await browser.close();
 
   const failed = results.filter((r) => !r.passed);
-  console.log(`\nSUMMARY ${results.length - failed.length}/${results.length} passed, ${failed.length} failed`);
+  console.log(
+    `\nSUMMARY ${results.length - failed.length}/${results.length} passed, ${failed.length} failed` +
+      (skipped.length > 0 ? `, ${skipped.length} skipped` : '')
+  );
+  if (skipped.length > 0) {
+    // Stated at the end as well as inline, so a run that verified less than it
+    // looks like cannot be mistaken for a full one.
+    console.log(
+      `\n${skipped.length} assertion(s) were SKIPPED and prove nothing. ` +
+        'Configure Supabase and re-run for full coverage.'
+    );
+  }
   process.exit(failed.length === 0 ? 0 : 1);
 })().catch((err) => {
   console.error('HARNESS ERROR', err);
