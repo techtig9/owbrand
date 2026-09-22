@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { getCurrentUser } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { updatePaddleSubscription } from '@/lib/paddle';
+import { logger } from '@/lib/logger';
 
 const bodySchema = z.object({ action: z.enum(['cancel', 'pause', 'resume']) });
 
@@ -34,7 +35,12 @@ export async function POST(req: NextRequest) {
     await updatePaddleSubscription(subscription.paddle_subscription_id, parsed.data.action);
     return NextResponse.json({ ok: true });
   } catch (err) {
-    console.error('manage-subscription failed', err);
-    return NextResponse.json({ error: 'Could not update your subscription. Please try again.' }, { status: 502 });
+    // Structured logger, not console: the request id is what ties this line to
+    // the 502 the caller received.
+    logger.error('billing:manage_subscription_failed', err, { action: parsed.data.action });
+    return NextResponse.json(
+      { error: 'Could not update your subscription. Please try again.' },
+      { status: 502 }
+    );
   }
 }

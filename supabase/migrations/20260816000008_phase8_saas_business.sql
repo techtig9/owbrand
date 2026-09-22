@@ -69,6 +69,19 @@ create table if not exists public.audit_events (
   created_at timestamptz not null default now()
 );
 
+-- Phase 1 fix: `subscriptions` is also declared in supabase/schema.sql with a
+-- user-scoped shape, so the `create table if not exists` above is a no-op on
+-- any database that has the base schema — and this index then failed with
+-- `column "workspace_id" does not exist`, aborting the migration. Reconcile the
+-- column explicitly before indexing it.
+alter table public.subscriptions add column if not exists workspace_id uuid;
+alter table public.subscriptions add column if not exists plan_id text;
+alter table public.subscriptions add column if not exists cancel_at_period_end boolean not null default false;
+alter table public.subscriptions add column if not exists current_period_start timestamptz;
+alter table public.subscriptions add column if not exists current_period_end timestamptz;
+alter table public.subscriptions add column if not exists created_at timestamptz not null default now();
+alter table public.subscriptions add column if not exists updated_at timestamptz not null default now();
+
 create index if not exists subscriptions_workspace_idx on public.subscriptions(workspace_id);
 create index if not exists usage_events_workspace_metric_idx on public.usage_events(workspace_id, metric, created_at);
 create index if not exists workspace_members_user_idx on public.workspace_members(user_id);

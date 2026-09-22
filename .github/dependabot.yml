@@ -1,0 +1,43 @@
+# Dependency updates.
+#
+# Weekly rather than daily: a PR per dependency per day is how a team learns to
+# ignore Dependabot, and an ignored security PR is worse than no Dependabot.
+#
+# Minor and patch updates are grouped into one PR per ecosystem so CI runs once
+# and the diff is reviewable in a sitting. Major updates stay separate, because
+# a major is a decision, not a chore.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      production-minor:
+        dependency-type: production
+        update-types: ['minor', 'patch']
+      development:
+        dependency-type: development
+        update-types: ['minor', 'patch']
+    ignore:
+      # Next majors change the App Router's behaviour; that upgrade is planned
+      # work with a verification pass, not a merge.
+      - dependency-name: next
+        update-types: ['version-update:semver-major']
+      - dependency-name: react
+        update-types: ['version-update:semver-major']
+      - dependency-name: react-dom
+        update-types: ['version-update:semver-major']
+    commit-message:
+      prefix: 'deps'
+      prefix-development: 'deps-dev'
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ['*']

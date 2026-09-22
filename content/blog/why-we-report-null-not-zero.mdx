@@ -1,0 +1,34 @@
+---
+title: Why we report "not measured" instead of zero
+description: A zero that means "no data" is a decision made on a number nobody measured.
+date: 2026-09-18
+draft: true
+tags: ['analytics', 'engineering']
+---
+
+DRAFT — written as a starting point for you to edit.
+
+## The bug that is not a bug
+
+A platform returns no click data for a post. The obvious thing is to store `0`.
+It is a number, the column is an integer, everything downstream keeps working.
+
+Then the dashboard shows a 0% click rate, the recommendation engine notices
+"clicks collapsed", and somebody reallocates budget away from a campaign that
+may have been the best performer that week. Nothing failed. No error was logged.
+The chart was drawn from a number that was never measured.
+
+## What we do instead
+
+- A rate with a zero denominator returns `null`, not `0`.
+- Which metrics a platform actually reported is recorded per row, so coverage
+  is a fact rather than an inference.
+- A recommendation cannot be stored without the evidence it rests on — the
+  database raises an exception on an empty evidence set.
+
+## The cost
+
+Charts have gaps. Gaps are honest. A continuous line drawn through invented
+zeros is not more informative, it is more confident.
+
+<!-- Add the coverage indicator screenshot here. -->

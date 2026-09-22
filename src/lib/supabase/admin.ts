@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { publicEnv, serverEnv } from '@/lib/env';
 
 /**
  * Service-role client — SERVER-ONLY, never import this from a Client Component
@@ -12,7 +13,16 @@ export function supabaseAdmin() {
   if (typeof window !== 'undefined') {
     throw new Error('supabaseAdmin() must never be called from client-side code.');
   }
-  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
+  /*
+   * Read through the validated env module, not `process.env.X!`.
+   *
+   * The `!` this replaces silenced TypeScript and produced, at runtime,
+   * supabase-js's own "Your project's URL and Key are required to create a
+   * Supabase client!" — a third-party message with no request id, no route,
+   * and nothing to say about which variable was missing. Every gated route on
+   * a deployment without credentials answered a generic 500 built from it.
+   */
+  return createClient(publicEnv.supabaseUrl, serverEnv.supabaseServiceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 }

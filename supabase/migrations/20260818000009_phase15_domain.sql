@@ -103,6 +103,15 @@ create table if not exists public.notification_events (
   created_at timestamptz not null default now()
 );
 
+-- Phase 1 fix: `products` is also declared in supabase/schema.sql as a
+-- brand-scoped table, so the `create table if not exists` above is a no-op on
+-- any database carrying the base schema — and this index then failed with
+-- `column "workspace_id" does not exist`, aborting the migration. Add the
+-- column (nullable; the Phase 1 migration derives it from the brand) first.
+alter table public.products add column if not exists workspace_id uuid;
+alter table public.products add column if not exists approved_facts jsonb not null default '{}'::jsonb;
+alter table public.products add column if not exists source_media jsonb not null default '[]'::jsonb;
+
 create index if not exists brand_brains_workspace_idx on public.brand_brains(workspace_id);
 create index if not exists products_workspace_idx on public.products(workspace_id);
 create index if not exists generation_jobs_workspace_state_idx on public.generation_jobs(workspace_id, state);

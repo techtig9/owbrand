@@ -15,16 +15,16 @@ const PARTNERS = [
 
 export function TrustedBy() {
   return (
-    <div className="reveal border-y border-line/70 bg-canvas-alt/60 py-8">
+    <div className="reveal border-y border-line/70 bg-surface-raised/60 py-8">
       <div className="mx-auto max-w-6xl px-6">
-        <p className="text-center text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint">
+        <p className="text-center text-xs font-semibold uppercase tracking-[0.14em] text-content-tertiary">
           Built on infrastructure you already trust
         </p>
         <div className="mt-5 flex flex-wrap items-center justify-center gap-x-10 gap-y-4">
           {PARTNERS.map((name) => (
             <span
               key={name}
-              className="trust-logo font-display text-lg font-bold tracking-tight text-ink"
+              className="trust-logo font-display text-lg font-bold tracking-tight"
             >
               {name}
             </span>

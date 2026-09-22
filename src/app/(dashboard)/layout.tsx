@@ -29,11 +29,23 @@ export default async function DashboardLayout({ children }: { children: React.Re
   }
 
   return (
-    <div className="flex min-h-screen bg-canvas">
+    // `app-shell` opts the application out of the display face: spec section 3
+    // asks for expressive marketing type and COMPACT application type, and one
+    // editorial face for both is what made the dashboard read as a lifestyle
+    // brand rather than a product.
+    <div className="app-shell flex min-h-screen bg-bg">
       <Sidebar />
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
         <TopNav userName={user.name} creditsRemaining={creditsRemaining} monthlyCredits={monthlyCredits} />
-        <main className="flex-1 p-6">{children}</main>
+        {/*
+          The skip link's target, and the page's main landmark. `min-w-0` on
+          this column is what stops a wide table or chart forcing the whole
+          shell to overflow horizontally — the flex default of `min-width:auto`
+          refuses to shrink below content width.
+        */}
+        <main id="main-content" tabIndex={-1} className="flex-1 p-4 outline-none sm:p-6">
+          {children}
+        </main>
       </div>
     </div>
   );

@@ -23,20 +23,20 @@ export function Pricing() {
         <div className="mx-auto max-w-xl text-center reveal">
           <span className="section-eyebrow mx-auto">Pricing</span>
           <h2 className="mt-4 text-4xl font-bold tracking-tight sm:text-5xl">Credits that map to real output.</h2>
-          <p className="mt-4 text-ink-soft">Every plan&apos;s first month ships with a launch discount, on us.</p>
+          <p className="mt-4 text-content-secondary">Every plan&apos;s first month ships with a launch discount, on us.</p>
 
-          <div className="mx-auto mt-8 inline-flex items-center gap-1 rounded-full border border-line bg-white p-1">
+          <div className="mx-auto mt-8 inline-flex items-center gap-1 rounded-full border border-line bg-surface p-1">
             <button
               type="button"
               onClick={() => setYearly(false)}
-              className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${!yearly ? 'bg-ink text-canvas' : 'text-ink-soft'}`}
+              className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${!yearly ? 'bg-ink text-canvas' : 'text-content-secondary'}`}
             >
               Monthly
             </button>
             <button
               type="button"
               onClick={() => setYearly(true)}
-              className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${yearly ? 'bg-ink text-canvas' : 'text-ink-soft'}`}
+              className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${yearly ? 'bg-ink text-canvas' : 'text-content-secondary'}`}
             >
               Yearly
             </button>
@@ -54,11 +54,11 @@ export function Pricing() {
               <div
                 key={id}
                 className={`reveal flex flex-col rounded-2xl border p-6 ${
-                  isPro ? 'border-coral-500 bg-white shadow-pop' : 'border-line bg-white shadow-soft'
+                  isPro ? 'border-primary bg-surface shadow-pop' : 'border-line bg-surface shadow-soft'
                 }`}
               >
                 {isPro && (
-                  <span className="mb-3 inline-flex w-fit rounded-full bg-coral-500 px-3 py-1 text-[11px] font-semibold text-white">
+                  <span className="mb-3 inline-flex w-fit rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-primary-fg">
                     Most popular
                   </span>
                 )}
@@ -66,17 +66,17 @@ export function Pricing() {
 
                 <div className="mt-3 flex items-baseline gap-1">
                   <span className="font-display text-4xl font-bold text-ink">${displayPrice}</span>
-                  {!isFree && <span className="text-sm text-ink-faint">/mo</span>}
+                  {!isFree && <span className="text-sm text-content-tertiary">/mo</span>}
                 </div>
                 {!isFree && !yearly && (
-                  <p className="mt-1 text-xs text-coral-600">{plan.launchDiscountPct}% off your first month</p>
+                  <p className="mt-1 text-xs text-primary">{plan.launchDiscountPct}% off your first month</p>
                 )}
-                {!isFree && yearly && <p className="mt-1 text-xs text-ink-faint">billed ${plan.priceYearly}/yr</p>}
+                {!isFree && yearly && <p className="mt-1 text-xs text-content-tertiary">billed ${plan.priceYearly}/yr</p>}
 
                 <ul className="mt-6 flex-1 space-y-3">
                   {HIGHLIGHTS[id].map((line) => (
-                    <li key={line} className="flex items-start gap-2 text-sm text-ink-soft">
-                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-mint-600" strokeWidth={2.5} />
+                    <li key={line} className="flex items-start gap-2 text-sm text-content-secondary">
+                      <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" strokeWidth={2.5} />
                       {line}
                     </li>
                   ))}
@@ -93,7 +93,7 @@ export function Pricing() {
           })}
         </div>
 
-        <p className="mt-8 text-center text-xs text-ink-faint">
+        <p className="mt-8 text-center text-xs text-content-tertiary">
           Unused credits expire at renewal. Extra credit top-ups available à la carte.
         </p>
       </div>

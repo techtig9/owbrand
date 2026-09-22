@@ -1,12 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
+import { routeHandler } from '@/lib/api/errors';
 import { requireAdmin } from '@/lib/require-admin';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 
-export async function GET(req: NextRequest) {
+/* Wrapped so a missing Supabase configuration is a 503, not a raw 500. */
+export const GET = routeHandler('/api/admin/list-users', async (request: Request) => {
   const { error } = await requireAdmin();
   if (error) return NextResponse.json({ error }, { status: 403 });
 
-  const search = req.nextUrl.searchParams.get('q')?.trim();
+  const search = new URL(request.url).searchParams.get('q')?.trim();
   const supabase = supabaseAdmin();
 
   let query = supabase
@@ -21,4 +23,4 @@ export async function GET(req: NextRequest) {
   if (dbError) return NextResponse.json({ error: dbError.message }, { status: 500 });
 
   return NextResponse.json({ users: data });
-}
+});

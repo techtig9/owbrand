@@ -113,22 +113,68 @@ export async function canUseFeature(user: GateableUser, action: FeatureAction): 
   }
 
   if (creditCost > 0) {
-    const { data: newBalance, error: deductError } = await supabase.rpc('deduct_credits', {
+    // reserve_credits deducts AND writes a credit_ledger row in one statement,
+    // so a balance can never move without a record explaining why. Falls back
+    // to the older RPC on a database that has not run the Phase 2 migration.
+    const { data: newBalance, error: deductError } = await supabase.rpc('reserve_credits', {
       p_user_id: user.id,
       p_amount: creditCost,
+      p_action: action,
     });
+
     if (deductError) {
+      // 42883 = undefined_function: Phase 2 migration not applied yet.
+      if ((deductError as { code?: string }).code === '42883') {
+        const legacy = await supabase.rpc('deduct_credits', { p_user_id: user.id, p_amount: creditCost });
+        if (legacy.error) {
+          return { allowed: false, reason: 'Could not reserve credits for this action. Please try again.', creditCost };
+        }
+        return { allowed: true, creditCost, creditsRemainingAfter: legacy.data as number };
+      }
       return { allowed: false, reason: 'Could not reserve credits for this action. Please try again.', creditCost };
     }
+
     return { allowed: true, creditCost, creditsRemainingAfter: newBalance as number };
   }
 
   return { allowed: true, creditCost, creditsRemainingAfter: creditsRemaining };
 }
 
-/** Call when a gated action fails after credits were deducted, so the user isn't charged. */
-export async function refundCredits(userId: string, amount: number): Promise<void> {
+/**
+ * Call when a gated action fails after credits were reserved, so the user is
+ * not charged for work they did not receive.
+ *
+ * Writes a ledger entry alongside the balance change. Never throws: a refund
+ * that cannot be recorded must still be attempted, and the caller is already
+ * handling a failure.
+ */
+export async function refundCredits(userId: string, amount: number, reason?: string): Promise<void> {
   if (amount <= 0) return;
   const supabase = supabaseAdmin();
-  await supabase.rpc('refund_credits', { p_user_id: userId, p_amount: amount });
+
+  const { error } = await supabase.rpc('refund_credits_logged', {
+    p_user_id: userId,
+    p_amount: amount,
+    p_reason: reason ?? null,
+  });
+
+  if (error && (error as { code?: string }).code === '42883') {
+    // Phase 2 migration not applied yet.
+    await supabase.rpc('refund_credits', { p_user_id: userId, p_amount: amount });
+  }
+}
+
+/**
+ * Reserves credits for an action, returning the gate result.
+ *
+ * A thin alias over canUseFeature() that names what actually happens at the
+ * call site: credits are taken BEFORE the provider call and given back if it
+ * fails. Routes read better for it, and it gives us one place to change the
+ * reservation strategy later.
+ */
+export async function reserveCredits(
+  user: { id: string; role: 'user' | 'admin' },
+  action: FeatureAction
+): Promise<GateResult> {
+  return canUseFeature(user, action);
 }

@@ -1,0 +1,1970 @@
+-- ============================================================================
+-- OwBrand — Row Level Security / tenant-isolation tests
+-- ============================================================================
+-- Runs against a database that has had the shim, schema.sql and every
+-- migration applied. Impersonates real users the way PostgREST does — by
+-- setting `role authenticated` and `request.jwt.claim.sub` — and asserts that
+-- one tenant cannot see another's rows.
+--
+-- Output lines begin with PASS or FAIL so the shell harness can grade them.
+-- ============================================================================
+
+\set ON_ERROR_STOP on
+\set QUIET on
+set client_min_messages = warning;
+
+create temporary table _results (name text, passed boolean, detail text);
+
+-- The suite switches into the `authenticated` / `anon` roles to exercise RLS,
+-- so those roles must be able to record assertions. Grant on the temp schema
+-- and table explicitly; temp objects are not covered by default privileges.
+do $$
+begin
+  execute format('grant usage on schema %I to public', (select nspname from pg_namespace
+    where oid = pg_my_temp_schema()));
+  execute format('grant select, insert on %I._results to public', (select nspname from pg_namespace
+    where oid = pg_my_temp_schema()));
+end $$;
+
+-- assert(name, actual, expected) — records a row rather than aborting, so one
+-- failure does not hide the rest of the suite.
+create or replace function pg_temp.assert_eq(p_name text, p_actual anyelement, p_expected anyelement)
+returns void language plpgsql as $$
+begin
+  insert into _results
+  values (p_name, p_actual is not distinct from p_expected,
+          format('expected %s, got %s', p_expected, p_actual));
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Fixtures: two unrelated tenants, plus a third user who shares A's workspace.
+-- ---------------------------------------------------------------------------
+\set user_a '11111111-1111-1111-1111-111111111111'
+\set user_b '22222222-2222-2222-2222-222222222222'
+\set user_c '33333333-3333-3333-3333-333333333333'
+
+insert into auth.users (id, email, raw_user_meta_data) values
+  (:'user_a', 'a@owbrand.test', '{"full_name":"Alice"}'),
+  (:'user_b', 'b@owbrand.test', '{"full_name":"Bob"}'),
+  (:'user_c', 'c@owbrand.test', '{"full_name":"Cleo"}');
+
+-- handle_new_user() created users/workspaces/subscriptions for each of them.
+
+-- Alice's brand, in Alice's workspace.
+insert into public.brands (id, user_id, workspace_id, name, description)
+select 'aaaaaaaa-0000-0000-0000-000000000001', :'user_a', w.id, 'Alice Brand', 'a'
+  from public.workspaces w where w.owner_id = :'user_a' limit 1;
+
+-- Bob's brand, in Bob's workspace.
+insert into public.brands (id, user_id, workspace_id, name, description)
+select 'bbbbbbbb-0000-0000-0000-000000000001', :'user_b', w.id, 'Bob Brand', 'b'
+  from public.workspaces w where w.owner_id = :'user_b' limit 1;
+
+-- Cleo is a member of Alice's workspace (shared-access case).
+insert into public.workspace_members (workspace_id, user_id, role)
+select w.id, :'user_c', 'editor' from public.workspaces w where w.owner_id = :'user_a' limit 1
+on conflict do nothing;
+
+insert into public.products (id, brand_id, name, description)
+values ('aaaaaaaa-0000-0000-0000-0000000000a1'::uuid, 'aaaaaaaa-0000-0000-0000-000000000001', 'Alice Product', 'x'),
+       ('bbbbbbbb-0000-0000-0000-0000000000b1'::uuid, 'bbbbbbbb-0000-0000-0000-000000000001', 'Bob Product', 'y');
+
+insert into public.campaigns (id, brand_id, name, objective, status)
+values ('aaaaaaaa-0000-0000-0000-0000000000a2'::uuid, 'aaaaaaaa-0000-0000-0000-000000000001', 'Alice Campaign', 'sales', 'draft'),
+       ('bbbbbbbb-0000-0000-0000-0000000000b2'::uuid, 'bbbbbbbb-0000-0000-0000-000000000001', 'Bob Campaign', 'sales', 'draft');
+
+insert into public.content_assets (id, user_id, brand_id, type, status)
+values ('aaaaaaaa-0000-0000-0000-0000000000a3'::uuid, :'user_a', 'aaaaaaaa-0000-0000-0000-000000000001', 'post', 'draft'),
+       ('bbbbbbbb-0000-0000-0000-0000000000b3'::uuid, :'user_b', 'bbbbbbbb-0000-0000-0000-000000000001', 'post', 'draft');
+
+insert into public.ai_recommendations (brand_id, title, recommendation, priority, status)
+values ('aaaaaaaa-0000-0000-0000-000000000001', 'Alice rec', 'do a thing', 'high', 'open'),
+       ('bbbbbbbb-0000-0000-0000-000000000001', 'Bob rec', 'do another', 'high', 'open');
+
+-- ---------------------------------------------------------------------------
+-- Schema-shape assertions (the migration collisions the audit found)
+-- ---------------------------------------------------------------------------
+select pg_temp.assert_eq(
+  'schema: campaigns has both objective and goal',
+  (select count(*)::int from information_schema.columns
+    where table_schema='public' and table_name='campaigns' and column_name in ('objective','goal')), 2);
+
+select pg_temp.assert_eq(
+  'schema: products.workspace_id exists and is nullable',
+  (select is_nullable from information_schema.columns
+    where table_schema='public' and table_name='products' and column_name='workspace_id'), 'YES');
+
+select pg_temp.assert_eq(
+  'schema: subscriptions keeps user-scoped credit columns',
+  (select count(*)::int from information_schema.columns
+    where table_schema='public' and table_name='subscriptions'
+      and column_name in ('user_id','credits_remaining','plan')), 3);
+
+select pg_temp.assert_eq(
+  'schema: webhook_events table exists',
+  (select count(*)::int from information_schema.tables
+    where table_schema='public' and table_name='webhook_events'), 1);
+
+select pg_temp.assert_eq(
+  'schema: email_logs table exists',
+  (select count(*)::int from information_schema.tables
+    where table_schema='public' and table_name='email_logs'), 1);
+
+select pg_temp.assert_eq(
+  'schema: ai_usage_logs table exists',
+  (select count(*)::int from information_schema.tables
+    where table_schema='public' and table_name='ai_usage_logs'), 1);
+
+select pg_temp.assert_eq(
+  'schema: audit_logs table exists',
+  (select count(*)::int from information_schema.tables
+    where table_schema='public' and table_name='audit_logs'), 1);
+
+-- Every tenant-owned table that has RLS enabled must now have at least one
+-- policy, except the deliberately worker-only ones.
+--
+-- The guard catches a real and easy mistake -- enabling RLS and forgetting the
+-- policies, which makes a table silently invisible to the application -- so the
+-- exception list below stays explicit and short rather than the predicate being
+-- loosened. A table earns a place on it only when NO user session should ever
+-- reach it, and each entry says which kind it is.
+select pg_temp.assert_eq(
+  'rls: no tenant table is left enabled-with-no-policy',
+  (select count(*)::int
+     from pg_tables t
+     left join (select schemaname, tablename, count(*) n from pg_policies group by 1,2) p
+       on p.schemaname = t.schemaname and p.tablename = t.tablename
+    where t.schemaname = 'public'
+      and t.rowsecurity
+      and coalesce(p.n, 0) = 0
+      -- Worker-only tables: invisible to clients by design.
+      and t.tablename not in ('webhook_events','publishing_jobs','marketing_actions','worker_heartbeats',
+      -- Superseded orphans, locked down by 20260922000014. Policy-less on
+      -- purpose: nothing should read them through a session, and they are kept
+      -- only because dropping an existing table is destructive.
+                              'media_jobs','product_asset_versions')
+  ), 0);
+
+-- Products insert must have derived workspace_id from the brand.
+select pg_temp.assert_eq(
+  'trigger: products.workspace_id derived from brand',
+  (select count(*)::int from public.products where workspace_id is not null), 2);
+
+-- Campaign alias sync must have populated `goal` from `objective`.
+select pg_temp.assert_eq(
+  'trigger: campaigns.goal synced from objective',
+  (select count(*)::int from public.campaigns where goal is not null), 2);
+
+-- ---------------------------------------------------------------------------
+-- Tenant isolation — Alice
+-- ---------------------------------------------------------------------------
+-- NOTE: session-level SET, not SET LOCAL. psql runs in autocommit, so SET LOCAL
+-- outside an explicit transaction silently does nothing — the suite would then
+-- run as the bootstrap superuser, which has BYPASSRLS, and every isolation
+-- assertion would pass without RLS ever being consulted.
+set role authenticated;
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+select pg_temp.assert_eq('rls: Alice sees only her own brand',
+  (select count(*)::int from public.brands), 1);
+select pg_temp.assert_eq('rls: Alice cannot read Bob''s brand by id',
+  (select count(*)::int from public.brands where id = 'bbbbbbbb-0000-0000-0000-000000000001'), 0);
+select pg_temp.assert_eq('rls: Alice sees only her own products',
+  (select count(*)::int from public.products), 1);
+select pg_temp.assert_eq('rls: Alice cannot read Bob''s product',
+  (select count(*)::int from public.products where name = 'Bob Product'), 0);
+select pg_temp.assert_eq('rls: Alice sees only her own campaigns',
+  (select count(*)::int from public.campaigns), 1);
+select pg_temp.assert_eq('rls: Alice cannot read Bob''s campaign',
+  (select count(*)::int from public.campaigns where name = 'Bob Campaign'), 0);
+select pg_temp.assert_eq('rls: Alice sees only her own content assets',
+  (select count(*)::int from public.content_assets), 1);
+select pg_temp.assert_eq('rls: Alice cannot read Bob''s AI recommendations',
+  (select count(*)::int from public.ai_recommendations where title = 'Bob rec'), 0);
+select pg_temp.assert_eq('rls: Alice sees only her own subscription',
+  (select count(*)::int from public.subscriptions), 1);
+
+-- Writes into another tenant must be refused too, not just reads.
+do $$
+declare ok boolean := false;
+begin
+  begin
+    insert into public.products (brand_id, name) values ('bbbbbbbb-0000-0000-0000-000000000001', 'injected');
+  exception when insufficient_privilege or check_violation then ok := true;
+  end;
+  insert into _results values ('rls: Alice cannot INSERT into Bob''s brand', ok,
+    case when ok then 'blocked' else 'INSERT SUCCEEDED — tenant isolation broken' end);
+end $$;
+
+do $$
+declare affected integer;
+begin
+  update public.brands set name = 'hijacked' where id = 'bbbbbbbb-0000-0000-0000-000000000001';
+  get diagnostics affected = row_count;
+  insert into _results values ('rls: Alice cannot UPDATE Bob''s brand', affected = 0,
+    format('%s rows updated', affected));
+end $$;
+
+do $$
+declare affected integer;
+begin
+  delete from public.brands where id = 'bbbbbbbb-0000-0000-0000-000000000001';
+  get diagnostics affected = row_count;
+  insert into _results values ('rls: Alice cannot DELETE Bob''s brand', affected = 0,
+    format('%s rows deleted', affected));
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Tenant isolation — Bob (mirror image)
+-- ---------------------------------------------------------------------------
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+
+select pg_temp.assert_eq('rls: Bob sees only his own brand',
+  (select count(*)::int from public.brands), 1);
+select pg_temp.assert_eq('rls: Bob cannot read Alice''s product',
+  (select count(*)::int from public.products where name = 'Alice Product'), 0);
+select pg_temp.assert_eq('rls: Bob cannot read Alice''s content assets',
+  (select count(*)::int from public.content_assets where user_id = '11111111-1111-1111-1111-111111111111'), 0);
+
+-- ---------------------------------------------------------------------------
+-- Shared workspace — Cleo is a member of Alice's workspace
+-- ---------------------------------------------------------------------------
+set request.jwt.claim.sub = '33333333-3333-3333-3333-333333333333';
+
+select pg_temp.assert_eq('rls: workspace member CAN read the shared brand',
+  (select count(*)::int from public.brands where id = 'aaaaaaaa-0000-0000-0000-000000000001'), 1);
+select pg_temp.assert_eq('rls: workspace member CAN read the shared products',
+  (select count(*)::int from public.products where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001'), 1);
+select pg_temp.assert_eq('rls: workspace member still cannot read Bob''s brand',
+  (select count(*)::int from public.brands where id = 'bbbbbbbb-0000-0000-0000-000000000001'), 0);
+
+-- ---------------------------------------------------------------------------
+-- Anonymous access
+-- ---------------------------------------------------------------------------
+set role anon;
+set request.jwt.claim.sub = '';
+
+do $$
+declare n integer := -1;
+begin
+  begin
+    select count(*) into n from public.brands;
+  exception when insufficient_privilege then n := 0;
+  end;
+  insert into _results values ('rls: anonymous cannot read any brand', n = 0, format('saw %s rows', n));
+end $$;
+
+do $$
+declare n integer := -1;
+begin
+  begin
+    select count(*) into n from public.subscriptions;
+  exception when insufficient_privilege then n := 0;
+  end;
+  insert into _results values ('rls: anonymous cannot read subscriptions', n = 0, format('saw %s rows', n));
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Worker-only tables must be invisible even to an authenticated user
+-- ---------------------------------------------------------------------------
+set role authenticated;
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+do $$
+declare n integer := -1;
+begin
+  begin
+    select count(*) into n from public.webhook_events;
+  exception when insufficient_privilege then n := 0;
+  end;
+  insert into _results values ('rls: authenticated user cannot read webhook_events', n = 0, format('saw %s rows', n));
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Credit integrity
+-- ---------------------------------------------------------------------------
+reset role;
+reset request.jwt.claim.sub;
+
+-- deduct is atomic and refuses to overdraw.
+do $$
+declare balance integer; ok boolean := false;
+begin
+  update public.subscriptions set credits_remaining = 100
+   where user_id = '11111111-1111-1111-1111-111111111111';
+
+  select public.deduct_credits('11111111-1111-1111-1111-111111111111', 40) into balance;
+  insert into _results values ('credits: deduct reduces balance', balance = 60, format('balance %s', balance));
+
+  begin
+    perform public.deduct_credits('11111111-1111-1111-1111-111111111111', 1000);
+  exception when others then ok := true;
+  end;
+  insert into _results values ('credits: cannot overdraw', ok,
+    case when ok then 'raised insufficient_credits' else 'OVERDRAW ALLOWED' end);
+
+  select credits_remaining into balance from public.subscriptions
+   where user_id = '11111111-1111-1111-1111-111111111111';
+  insert into _results values ('credits: failed deduct left balance intact', balance = 60, format('balance %s', balance));
+end $$;
+
+-- refund is capped at the plan ceiling (free = 500).
+do $$
+declare balance integer;
+begin
+  perform public.refund_credits('11111111-1111-1111-1111-111111111111', 999999);
+  select credits_remaining into balance from public.subscriptions
+   where user_id = '11111111-1111-1111-1111-111111111111';
+  insert into _results values ('credits: refund capped at plan ceiling', balance <= 500, format('balance %s', balance));
+end $$;
+
+-- Non-negative constraint is enforced at the table level.
+do $$
+declare ok boolean := false;
+begin
+  begin
+    update public.subscriptions set credits_remaining = -5
+     where user_id = '11111111-1111-1111-1111-111111111111';
+  exception when check_violation then ok := true;
+  end;
+  insert into _results values ('credits: negative balance rejected by constraint', ok,
+    case when ok then 'constraint held' else 'NEGATIVE BALANCE ALLOWED' end);
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Webhook idempotency
+-- ---------------------------------------------------------------------------
+do $$
+declare ok boolean := false;
+begin
+  insert into public.webhook_events (provider, event_id, event_type)
+  values ('paddle', 'evt_test_1', 'transaction.completed');
+  begin
+    insert into public.webhook_events (provider, event_id, event_type)
+    values ('paddle', 'evt_test_1', 'transaction.completed');
+  exception when unique_violation then ok := true;
+  end;
+  insert into _results values ('billing: duplicate webhook event rejected', ok,
+    case when ok then 'unique constraint held' else 'DUPLICATE ACCEPTED' end);
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Storage path policy
+-- ---------------------------------------------------------------------------
+do $$
+declare segs text[];
+begin
+  segs := storage.foldername('11111111-1111-1111-1111-111111111111/brand/product/file.png');
+  insert into _results values ('storage: foldername extracts tenant segment',
+    segs[1] = '11111111-1111-1111-1111-111111111111', array_to_string(segs, '/'));
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Phase 2: AI / Brand Brain / Product Brain tables
+-- ---------------------------------------------------------------------------
+reset role;
+reset request.jwt.claim.sub;
+
+insert into public.brand_brain_versions (brand_id, version, brain, source)
+values ('aaaaaaaa-0000-0000-0000-000000000001', 1,
+        '{"name":"Alice Brand","tagline":"t","positioning":{"usp":"u"}}'::jsonb, 'ai_generated'),
+       ('bbbbbbbb-0000-0000-0000-000000000001', 1,
+        '{"name":"Bob Brand","tagline":"t","positioning":{"usp":"u"}}'::jsonb, 'ai_generated');
+
+insert into public.product_facts (product_id, fact, category, verified)
+values ('aaaaaaaa-0000-0000-0000-0000000000a1', 'Alice fact', 'general', true),
+       ('bbbbbbbb-0000-0000-0000-0000000000b1', 'Bob fact', 'general', true);
+
+insert into public.site_pages (id, brand_id, slug, title, is_home)
+values ('aaaaaaaa-0000-0000-0000-0000000000d1'::uuid, 'aaaaaaaa-0000-0000-0000-000000000001', 'home', 'Alice Home', true),
+       ('bbbbbbbb-0000-0000-0000-0000000000d1'::uuid, 'bbbbbbbb-0000-0000-0000-000000000001', 'home', 'Bob Home', true);
+
+insert into public.site_sections (page_id, kind, sort_order)
+values ('aaaaaaaa-0000-0000-0000-0000000000d1'::uuid, 'hero', 0),
+       ('bbbbbbbb-0000-0000-0000-0000000000d1'::uuid, 'hero', 0);
+
+select pg_temp.assert_eq(
+  'schema: brand_brain_versions enforces unique (brand_id, version)',
+  (select count(*)::int from pg_indexes
+    where schemaname='public' and tablename='brand_brain_versions'
+      and indexdef like '%UNIQUE%brand_id%version%'), 1);
+
+select pg_temp.assert_eq(
+  'schema: asset_versions requires exactly one parent',
+  (select count(*)::int from pg_constraint where conname = 'asset_versions_one_parent'), 1);
+
+set role authenticated;
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+select pg_temp.assert_eq('rls: Alice sees only her own Brand Brain versions',
+  (select count(*)::int from public.brand_brain_versions), 1);
+select pg_temp.assert_eq('rls: Alice cannot read Bob''s Brand Brain',
+  (select count(*)::int from public.brand_brain_versions
+    where brand_id = 'bbbbbbbb-0000-0000-0000-000000000001'), 0);
+select pg_temp.assert_eq('rls: Alice sees only her own product facts',
+  (select count(*)::int from public.product_facts), 1);
+select pg_temp.assert_eq('rls: Alice cannot read Bob''s product facts',
+  (select count(*)::int from public.product_facts where fact = 'Bob fact'), 0);
+select pg_temp.assert_eq('rls: Alice sees only her own site pages',
+  (select count(*)::int from public.site_pages), 1);
+select pg_temp.assert_eq('rls: Alice cannot read Bob''s site sections',
+  (select count(*)::int from public.site_sections), 1);
+select pg_temp.assert_eq('rls: Alice sees only her own credit ledger',
+  (select count(*)::int from public.credit_ledger where user_id <> auth.uid()), 0);
+
+-- A blocked write must be refused, not silently ignored.
+do $$
+declare ok boolean := false;
+begin
+  begin
+    insert into public.brand_brain_versions (brand_id, version, brain)
+    values ('bbbbbbbb-0000-0000-0000-000000000001', 99, '{}'::jsonb);
+  exception when insufficient_privilege or check_violation then ok := true;
+  end;
+  insert into _results values ('rls: Alice cannot write a Brand Brain into Bob''s brand', ok,
+    case when ok then 'blocked' else 'INSERT SUCCEEDED — tenant isolation broken' end);
+end $$;
+
+reset role;
+reset request.jwt.claim.sub;
+
+-- reserve_credits must be atomic and must leave a ledger entry.
+do $$
+declare balance integer; entries integer; ok boolean := false;
+begin
+  update public.subscriptions set credits_remaining = 200
+   where user_id = '11111111-1111-1111-1111-111111111111';
+
+  select public.reserve_credits('11111111-1111-1111-1111-111111111111', 50, 'generate_content') into balance;
+  insert into _results values ('credits: reserve_credits deducts', balance = 150, format('balance %s', balance));
+
+  select count(*) into entries from public.credit_ledger
+   where user_id = '11111111-1111-1111-1111-111111111111' and entry_type = 'reserve';
+  insert into _results values ('credits: reserve writes a ledger entry', entries = 1, format('%s entries', entries));
+
+  begin
+    perform public.reserve_credits('11111111-1111-1111-1111-111111111111', 100000, 'x');
+  exception when others then ok := true;
+  end;
+  insert into _results values ('credits: reserve cannot overdraw', ok,
+    case when ok then 'raised insufficient_credits' else 'OVERDRAW ALLOWED' end);
+
+  select credits_remaining into balance from public.subscriptions
+   where user_id = '11111111-1111-1111-1111-111111111111';
+  insert into _results values ('credits: failed reserve wrote no ledger entry', balance = 150, format('balance %s', balance));
+
+  perform public.refund_credits_logged('11111111-1111-1111-1111-111111111111', 50, 'generation failed');
+  select count(*) into entries from public.credit_ledger
+   where user_id = '11111111-1111-1111-1111-111111111111' and entry_type = 'refund';
+  insert into _results values ('credits: refund writes a ledger entry', entries = 1, format('%s entries', entries));
+end $$;
+
+
+-- ===========================================================================
+-- Phase 3 — publishing, leases and OAuth state
+-- ===========================================================================
+-- The properties asserted here cannot be checked from application code:
+-- whether the claim really is atomic, whether RLS really keeps one tenant out
+-- of another's queue, and whether the state machine in
+-- complete_publishing_job() actually holds.
+-- ---------------------------------------------------------------------------
+
+reset role;
+reset request.jwt.claim.sub;
+
+-- Alice and Bob each get a connected account and a queued post.
+insert into public.social_accounts
+  (id, user_id, brand_id, platform, account_name, external_account_id, external_page_id,
+   access_token_ciphertext, granted_scopes, status)
+values
+  ('a0000000-0000-0000-0000-0000000000a1', :'user_a', 'aaaaaaaa-0000-0000-0000-000000000001',
+   'instagram', 'alice_ig', 'ig_alice', 'page_alice', 'v1.aaa.bbb.ccc',
+   array['instagram_basic','instagram_content_publish','pages_show_list','pages_read_engagement','business_management'], 'active'),
+  ('b0000000-0000-0000-0000-0000000000b1', :'user_b', 'bbbbbbbb-0000-0000-0000-000000000001',
+   'instagram', 'bob_ig', 'ig_bob', 'page_bob', 'v1.ddd.eee.fff',
+   array['instagram_basic'], 'needs_reconnect');
+
+insert into public.social_posts (id, brand_id, platform, status, caption, media_urls, idempotency_key)
+values
+  ('a0000000-0000-0000-0000-0000000000a2', 'aaaaaaaa-0000-0000-0000-000000000001',
+   'instagram', 'queued', 'alice caption', '["https://cdn.test/a.jpg"]'::jsonb, 'idem-alice-1'),
+  ('b0000000-0000-0000-0000-0000000000b2', 'bbbbbbbb-0000-0000-0000-000000000001',
+   'instagram', 'queued', 'bob caption', '["https://cdn.test/b.jpg"]'::jsonb, 'idem-bob-1');
+
+insert into public.publishing_jobs
+  (id, social_post_id, brand_id, social_account_id, platform, status, idempotency_key, max_attempts)
+values
+  ('a0000000-0000-0000-0000-0000000000a3', 'a0000000-0000-0000-0000-0000000000a2',
+   'aaaaaaaa-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-0000000000a1',
+   'instagram', 'queued', 'idem-alice-1', 5),
+  ('b0000000-0000-0000-0000-0000000000b3', 'b0000000-0000-0000-0000-0000000000b2',
+   'bbbbbbbb-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-0000000000b1',
+   'instagram', 'queued', 'idem-bob-1', 5);
+
+-- --- Schema guarantees -----------------------------------------------------
+do $$
+declare ok boolean := false;
+begin
+  -- Duplicate idempotency key must be impossible: a second social post for the
+  -- same key would publish the same content twice.
+  begin
+    insert into public.social_posts (brand_id, platform, status, idempotency_key)
+    values ('aaaaaaaa-0000-0000-0000-000000000001', 'instagram', 'queued', 'idem-alice-1');
+  exception when unique_violation then ok := true;
+  end;
+  insert into _results values ('publishing: duplicate post idempotency key rejected', ok,
+    case when ok then 'unique violation raised' else 'DUPLICATE POST ALLOWED' end);
+
+  ok := false;
+  begin
+    insert into public.publishing_jobs (social_post_id, platform, status, idempotency_key)
+    values ('a0000000-0000-0000-0000-0000000000a2', 'instagram', 'queued', 'idem-alice-1');
+  exception when unique_violation then ok := true;
+  end;
+  insert into _results values ('publishing: duplicate job idempotency key rejected', ok,
+    case when ok then 'unique violation raised' else 'DUPLICATE JOB ALLOWED' end);
+
+  ok := false;
+  begin
+    update public.publishing_jobs set status = 'not_a_status'
+     where id = 'a0000000-0000-0000-0000-0000000000a3';
+  exception when check_violation then ok := true;
+  end;
+  insert into _results values ('publishing: job status constrained', ok,
+    case when ok then 'check violation raised' else 'ARBITRARY STATUS ACCEPTED' end);
+
+  ok := false;
+  begin
+    update public.social_accounts set status = 'whatever'
+     where id = 'a0000000-0000-0000-0000-0000000000a1';
+  exception when check_violation then ok := true;
+  end;
+  insert into _results values ('social: account status constrained', ok,
+    case when ok then 'check violation raised' else 'ARBITRARY STATUS ACCEPTED' end);
+end $$;
+
+-- --- Atomic claim ----------------------------------------------------------
+do $$
+declare
+  first_batch integer;
+  second_batch integer;
+  leased_by text;
+  lease_until timestamptz;
+begin
+  select count(*) into first_batch
+    from public.claim_publishing_jobs('worker-one', 10, 300);
+  insert into _results values ('publishing: worker claims both due jobs', first_batch = 2,
+    format('claimed %s', first_batch));
+
+  -- THE property that matters. A second worker running while the first holds
+  -- its lease must get nothing: a social post cannot be un-published.
+  select count(*) into second_batch
+    from public.claim_publishing_jobs('worker-two', 10, 300);
+  insert into _results values ('publishing: second worker claims nothing while leased', second_batch = 0,
+    format('claimed %s', second_batch));
+
+  select locked_by, locked_until into leased_by, lease_until
+    from public.publishing_jobs where id = 'a0000000-0000-0000-0000-0000000000a3';
+  insert into _results values ('publishing: lease records the holder', leased_by = 'worker-one',
+    format('locked_by %s', coalesce(leased_by, 'null')));
+  insert into _results values ('publishing: lease has a future expiry', lease_until > now(),
+    format('locked_until %s', lease_until));
+
+  -- A crashed worker must not strand the job forever.
+  update public.publishing_jobs
+     set locked_until = now() - interval '1 minute'
+   where id = 'a0000000-0000-0000-0000-0000000000a3';
+
+  select count(*) into second_batch
+    from public.claim_publishing_jobs('worker-three', 10, 300);
+  insert into _results values ('publishing: expired lease is reclaimable', second_batch = 1,
+    format('reclaimed %s', second_batch));
+end $$;
+
+-- --- Scheduling and backoff gating ----------------------------------------
+do $$
+declare claimed integer;
+begin
+  -- Release both jobs, then push one into the future.
+  update public.publishing_jobs
+     set status = 'queued', locked_until = null, locked_by = null, next_attempt_at = null, scheduled_for = null;
+
+  update public.publishing_jobs
+     set scheduled_for = now() + interval '1 day'
+   where id = 'a0000000-0000-0000-0000-0000000000a3';
+
+  select count(*) into claimed from public.claim_publishing_jobs('worker-four', 10, 300);
+  insert into _results values ('publishing: future-scheduled job is not claimed', claimed = 1,
+    format('claimed %s of 2', claimed));
+
+  update public.publishing_jobs
+     set status = 'queued', locked_until = null, locked_by = null, scheduled_for = null;
+
+  -- A job backing off after a retryable failure must wait its turn.
+  update public.publishing_jobs
+     set next_attempt_at = now() + interval '1 hour'
+   where id = 'a0000000-0000-0000-0000-0000000000a3';
+
+  select count(*) into claimed from public.claim_publishing_jobs('worker-five', 10, 300);
+  insert into _results values ('publishing: backing-off job is not claimed', claimed = 1,
+    format('claimed %s of 2', claimed));
+
+  update public.publishing_jobs
+     set status = 'queued', locked_until = null, locked_by = null, next_attempt_at = null, attempts = 0;
+
+  -- Exhausted attempts must never be retried again.
+  update public.publishing_jobs
+     set attempts = 5, max_attempts = 5
+   where id = 'a0000000-0000-0000-0000-0000000000a3';
+
+  select count(*) into claimed from public.claim_publishing_jobs('worker-six', 10, 300);
+  insert into _results values ('publishing: exhausted job is not claimed', claimed = 1,
+    format('claimed %s of 2', claimed));
+
+  update public.publishing_jobs
+     set status = 'queued', locked_until = null, locked_by = null, attempts = 0, max_attempts = 5;
+end $$;
+
+-- --- complete_publishing_job() state machine -------------------------------
+do $$
+declare
+  job public.publishing_jobs;
+  post_status text;
+  attempt_rows integer;
+begin
+  -- A retryable failure schedules another attempt and releases the lease.
+  perform public.claim_publishing_jobs('worker-seven', 10, 300);
+
+  job := public.complete_publishing_job(
+    'a0000000-0000-0000-0000-0000000000a3', 'retryable_failure',
+    null, null, 'retryable', 'meta_http_500', 'Meta is having a moment.', null, 120, 60);
+
+  insert into _results values ('publishing: retryable failure requeues', job.status = 'queued',
+    format('status %s', job.status));
+  insert into _results values ('publishing: retryable failure counts the attempt', job.attempts = 1,
+    format('attempts %s', job.attempts));
+  insert into _results values ('publishing: retryable failure releases the lease', job.locked_until is null,
+    format('locked_until %s', coalesce(job.locked_until::text, 'null')));
+  insert into _results values ('publishing: retry is scheduled in the future', job.next_attempt_at > now(),
+    format('next_attempt_at %s', coalesce(job.next_attempt_at::text, 'null')));
+
+  select count(*) into attempt_rows from public.publishing_attempts
+   where publishing_job_id = 'a0000000-0000-0000-0000-0000000000a3';
+  insert into _results values ('publishing: every attempt is logged', attempt_rows = 1,
+    format('%s attempt rows', attempt_rows));
+
+  -- The attempt ceiling is enforced by the function, not the caller: a worker
+  -- that keeps calling cannot exceed it.
+  update public.publishing_jobs set attempts = 4, next_attempt_at = null
+   where id = 'a0000000-0000-0000-0000-0000000000a3';
+
+  job := public.complete_publishing_job(
+    'a0000000-0000-0000-0000-0000000000a3', 'retryable_failure',
+    null, null, 'retryable', 'meta_http_500', 'Still broken.', null, 90, 60);
+
+  -- Was `= 'failed'`. The Phase 7 dead-letter migration splits that bucket:
+  -- exhausting retries on a RETRYABLE error means the platform was broken, not
+  -- the job, and that is the set an operator replays after an incident. This
+  -- assertion was updated to the new, more useful guarantee rather than the
+  -- migration being softened to keep an old assertion green.
+  insert into _results values ('publishing: fifth retryable attempt dead-letters the job',
+    job.status = 'dead_letter',
+    format('status %s after %s attempts', job.status, job.attempts));
+  insert into _results values ('publishing: exhausted job schedules no retry', job.next_attempt_at is null,
+    format('next_attempt_at %s', coalesce(job.next_attempt_at::text, 'null')));
+
+  select status into post_status from public.social_posts
+   where id = 'a0000000-0000-0000-0000-0000000000a2';
+  insert into _results values ('publishing: failed job fails the post', post_status = 'failed',
+    format('post status %s', post_status));
+
+  -- A permanent failure never retries, whatever the attempt count.
+  update public.publishing_jobs
+     set status = 'claimed', attempts = 0, next_attempt_at = null
+   where id = 'b0000000-0000-0000-0000-0000000000b3';
+
+  job := public.complete_publishing_job(
+    'b0000000-0000-0000-0000-0000000000b3', 'needs_reconnect',
+    null, null, 'needs_reconnect', 'meta_auth_190', 'Token expired.', null, 40, null);
+
+  insert into _results values ('publishing: needs_reconnect fails without retrying', job.status = 'failed',
+    format('status %s at attempt %s', job.status, job.attempts));
+
+  -- Success writes the external ids through to the user-visible post.
+  update public.publishing_jobs
+     set status = 'claimed', attempts = 0, next_attempt_at = null
+   where id = 'a0000000-0000-0000-0000-0000000000a3';
+
+  job := public.complete_publishing_job(
+    'a0000000-0000-0000-0000-0000000000a3', 'published',
+    'ig_17900000000000000', 'https://instagram.com/p/abc', null, null, null,
+    '{"id":"ig_17900000000000000"}'::jsonb, 850, null);
+
+  insert into _results values ('publishing: success marks the job published', job.status = 'published',
+    format('status %s', job.status));
+
+  select status into post_status from public.social_posts
+   where id = 'a0000000-0000-0000-0000-0000000000a2';
+  insert into _results values ('publishing: success marks the post published', post_status = 'published',
+    format('post status %s', post_status));
+
+  perform 1 from public.social_posts
+   where id = 'a0000000-0000-0000-0000-0000000000a2'
+     and external_post_id = 'ig_17900000000000000'
+     and external_url = 'https://instagram.com/p/abc'
+     and published_at is not null
+     and last_error is null;
+  insert into _results values ('publishing: success records external ids and clears the error', found, '');
+
+  -- An unknown outcome must be rejected rather than silently stored.
+  declare ok boolean := false;
+  begin
+    begin
+      job := public.complete_publishing_job('a0000000-0000-0000-0000-0000000000a3', 'went_fine');
+    exception when others then ok := true;
+    end;
+    insert into _results values ('publishing: unknown outcome rejected', ok,
+      case when ok then 'raised' else 'ACCEPTED UNKNOWN OUTCOME' end);
+  end;
+end $$;
+
+-- --- OAuth state -----------------------------------------------------------
+do $$
+declare
+  consumed integer;
+  ok boolean := false;
+begin
+  -- psql :'var' interpolation does not reach inside a DO block, so the fixture
+  -- ids are written out literally here.
+  insert into public.oauth_states (state, user_id, provider, requested_scopes, return_to)
+  values ('state-alice-fresh', '11111111-1111-1111-1111-111111111111', 'meta', array['instagram_basic'], '/dashboard/settings'),
+         ('state-alice-expired', '11111111-1111-1111-1111-111111111111', 'meta', array['instagram_basic'], '/dashboard/settings');
+
+  update public.oauth_states set expires_at = now() - interval '1 minute'
+   where state = 'state-alice-expired';
+
+  -- The consume query the callback runs: unconsumed AND unexpired.
+  with claimed as (
+    update public.oauth_states set consumed_at = now()
+     where state = 'state-alice-fresh' and provider = 'meta'
+       and consumed_at is null and expires_at > now()
+    returning 1
+  ) select count(*) into consumed from claimed;
+  insert into _results values ('oauth: fresh state is consumable once', consumed = 1,
+    format('consumed %s', consumed));
+
+  -- Replay of the same callback URL must fail — this is the account-linking
+  -- attack the state exists to stop.
+  with claimed as (
+    update public.oauth_states set consumed_at = now()
+     where state = 'state-alice-fresh' and provider = 'meta'
+       and consumed_at is null and expires_at > now()
+    returning 1
+  ) select count(*) into consumed from claimed;
+  insert into _results values ('oauth: consumed state cannot be replayed', consumed = 0,
+    format('consumed %s', consumed));
+
+  with claimed as (
+    update public.oauth_states set consumed_at = now()
+     where state = 'state-alice-expired' and provider = 'meta'
+       and consumed_at is null and expires_at > now()
+    returning 1
+  ) select count(*) into consumed from claimed;
+  insert into _results values ('oauth: expired state is rejected', consumed = 0,
+    format('consumed %s', consumed));
+
+  -- A state row cannot outlive its user.
+  ok := false;
+  begin
+    insert into public.oauth_states (state, user_id, provider)
+    values ('state-orphan', '99999999-9999-9999-9999-999999999999', 'meta');
+  exception when foreign_key_violation then ok := true;
+  end;
+  insert into _results values ('oauth: state requires a real user', ok,
+    case when ok then 'fk violation raised' else 'ORPHAN STATE ALLOWED' end);
+end $$;
+
+-- --- RLS: tenant isolation on the new tables -------------------------------
+set role authenticated;
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+do $$
+declare n integer;
+begin
+  select count(*) into n from public.social_posts;
+  insert into _results values ('rls: Alice sees only her own social posts', n = 1, format('%s rows', n));
+
+  select count(*) into n from public.social_posts
+   where brand_id = 'bbbbbbbb-0000-0000-0000-000000000001';
+  insert into _results values ('rls: Alice cannot read Bob''s social posts', n = 0, format('%s rows', n));
+
+  select count(*) into n from public.publishing_jobs;
+  insert into _results values ('rls: Alice sees only her own publishing jobs', n = 1, format('%s rows', n));
+
+  select count(*) into n from public.publishing_attempts;
+  insert into _results values ('rls: Alice sees only her own publish attempts', n > 0 and n = (
+    select count(*) from public.publishing_attempts
+     where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001'), format('%s rows', n));
+
+  select count(*) into n from public.social_accounts;
+  insert into _results values ('rls: Alice sees only her own connected accounts', n = 1, format('%s rows', n));
+
+  select count(*) into n from public.oauth_states;
+  insert into _results values ('rls: Alice sees only her own oauth states', n = 2, format('%s rows', n));
+end $$;
+
+-- A tenant must be able to READ why their post failed but never rewrite the
+-- job — otherwise they could reset attempts and bypass the ceiling.
+do $$
+declare updated integer;
+begin
+  update public.publishing_jobs set attempts = 0, max_attempts = 99 where true;
+  get diagnostics updated = row_count;
+  insert into _results values ('rls: tenant cannot rewrite publishing jobs', updated = 0,
+    format('%s rows updated', updated));
+
+  update public.social_posts set status = 'published', external_post_id = 'forged'
+   where brand_id = 'bbbbbbbb-0000-0000-0000-000000000001';
+  get diagnostics updated = row_count;
+  insert into _results values ('rls: tenant cannot forge another tenant''s post', updated = 0,
+    format('%s rows updated', updated));
+end $$;
+
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+
+do $$
+declare n integer;
+begin
+  select count(*) into n from public.oauth_states;
+  insert into _results values ('rls: Bob cannot read Alice''s oauth states', n = 0, format('%s rows', n));
+
+  select count(*) into n from public.social_accounts
+   where id = 'a0000000-0000-0000-0000-0000000000a1';
+  insert into _results values ('rls: Bob cannot read Alice''s connected account', n = 0, format('%s rows', n));
+end $$;
+
+-- Cleo shares Alice's workspace, so the team calendar must be visible to her.
+set request.jwt.claim.sub = '33333333-3333-3333-3333-333333333333';
+
+do $$
+declare n integer;
+begin
+  select count(*) into n from public.social_posts
+   where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001';
+  insert into _results values ('rls: workspace member CAN read the shared calendar', n = 1, format('%s rows', n));
+
+  select count(*) into n from public.social_posts
+   where brand_id = 'bbbbbbbb-0000-0000-0000-000000000001';
+  insert into _results values ('rls: workspace member still cannot read Bob''s posts', n = 0, format('%s rows', n));
+end $$;
+
+set role anon;
+reset request.jwt.claim.sub;
+
+do $$
+declare n integer;
+begin
+  select count(*) into n from public.social_accounts;
+  insert into _results values ('rls: anonymous cannot read connected accounts', n = 0, format('%s rows', n));
+
+  select count(*) into n from public.oauth_states;
+  insert into _results values ('rls: anonymous cannot read oauth states', n = 0, format('%s rows', n));
+
+  select count(*) into n from public.social_posts;
+  insert into _results values ('rls: anonymous cannot read social posts', n = 0, format('%s rows', n));
+end $$;
+
+reset role;
+reset request.jwt.claim.sub;
+
+
+-- ===========================================================================
+-- Phase 4 — analytics ingestion, attribution and recommendations
+-- ===========================================================================
+-- Asserts the properties only the database can guarantee: that re-ingesting a
+-- day is an upsert rather than a duplicate, that a later measurement wins,
+-- that spend recorded elsewhere is not wiped by a zero from insights, that a
+-- recommendation cannot be stored without evidence, and that a tenant can read
+-- but never write its own analytics.
+-- ---------------------------------------------------------------------------
+
+reset role;
+reset request.jwt.claim.sub;
+
+-- --- Idempotent re-ingestion -----------------------------------------------
+do $$
+declare
+  row_count_before integer;
+  row_count_after integer;
+  stored public.analytics_daily;
+begin
+  -- First ingestion of a day.
+  stored := public.upsert_daily_metrics(
+    'aaaaaaaa-0000-0000-0000-000000000001', 'instagram', 'ig_alice', '2026-09-01',
+    'a0000000-0000-0000-0000-0000000000a1',
+    800, 1000, 50, 0, 0, 0, 0, 0,
+    '{"metricsReported":["impressions","reach","engagements"]}'::jsonb);
+
+  insert into _results values ('analytics: first ingestion writes the day', stored.impressions = 1000,
+    format('impressions %s', stored.impressions));
+
+  select count(*) into row_count_before from public.analytics_daily
+   where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001' and metric_date = '2026-09-01';
+
+  -- Same day again with REVISED numbers — the normal case, because platforms
+  -- restate recent figures for up to 72 hours.
+  stored := public.upsert_daily_metrics(
+    'aaaaaaaa-0000-0000-0000-000000000001', 'instagram', 'ig_alice', '2026-09-01',
+    'a0000000-0000-0000-0000-0000000000a1',
+    900, 1200, 70, 0, 0, 0, 0, 0,
+    '{"metricsReported":["impressions","reach","engagements"]}'::jsonb);
+
+  select count(*) into row_count_after from public.analytics_daily
+   where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001' and metric_date = '2026-09-01';
+
+  insert into _results values ('analytics: re-ingesting a day does not duplicate it',
+    row_count_before = 1 and row_count_after = 1, format('%s then %s rows', row_count_before, row_count_after));
+
+  insert into _results values ('analytics: the later measurement wins', stored.impressions = 1200,
+    format('impressions %s', stored.impressions));
+end $$;
+
+-- --- Spend and revenue are not clobbered by a zero -------------------------
+do $$
+declare stored public.analytics_daily;
+begin
+  -- Ad spend recorded from an ad account or the tenant's commerce data.
+  update public.analytics_daily set spend = 250, revenue = 900
+   where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001' and metric_date = '2026-09-01';
+
+  -- Insights ingestion runs again and reports no spend, because platform
+  -- insights never carry it. It must not wipe the real figure.
+  stored := public.upsert_daily_metrics(
+    'aaaaaaaa-0000-0000-0000-000000000001', 'instagram', 'ig_alice', '2026-09-01',
+    'a0000000-0000-0000-0000-0000000000a1',
+    900, 1200, 70, 0, 0, 0, 0, 0, '{}'::jsonb);
+
+  insert into _results values ('analytics: insights zero does not wipe recorded spend', stored.spend = 250,
+    format('spend %s', stored.spend));
+  insert into _results values ('analytics: insights zero does not wipe recorded revenue', stored.revenue = 900,
+    format('revenue %s', stored.revenue));
+end $$;
+
+-- --- Post metric snapshots -------------------------------------------------
+do $$
+declare
+  stored public.post_metrics;
+  snapshots integer;
+begin
+  stored := public.upsert_post_metrics(
+    'aaaaaaaa-0000-0000-0000-000000000001', null, 'instagram', 'ig_media_1', '2026-09-05',
+    '2026-09-01T10:00:00Z', 500, 400, 30, 20, 5, 3, 2, 0, 0, '{}'::jsonb);
+
+  insert into _results values ('analytics: post snapshot written', stored.impressions = 500,
+    format('impressions %s', stored.impressions));
+
+  -- Same post, same snapshot day, revised: upsert.
+  stored := public.upsert_post_metrics(
+    'aaaaaaaa-0000-0000-0000-000000000001', null, 'instagram', 'ig_media_1', '2026-09-05',
+    '2026-09-01T10:00:00Z', 650, 500, 45, 30, 8, 4, 3, 0, 0, '{}'::jsonb);
+
+  select count(*) into snapshots from public.post_metrics
+   where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001' and external_post_id = 'ig_media_1';
+
+  insert into _results values ('analytics: same-day post re-snapshot upserts', snapshots = 1,
+    format('%s rows', snapshots));
+
+  -- A DIFFERENT day is a new snapshot, because engagement keeps accruing and
+  -- "impressions as measured on the 6th" is a distinct fact.
+  stored := public.upsert_post_metrics(
+    'aaaaaaaa-0000-0000-0000-000000000001', null, 'instagram', 'ig_media_1', '2026-09-06',
+    '2026-09-01T10:00:00Z', 900, 700, 60, 40, 10, 6, 4, 0, 0, '{}'::jsonb);
+
+  select count(*) into snapshots from public.post_metrics
+   where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001' and external_post_id = 'ig_media_1';
+
+  insert into _results values ('analytics: a new snapshot day is a new row', snapshots = 2,
+    format('%s rows', snapshots));
+end $$;
+
+-- --- Attribution touchpoint idempotency ------------------------------------
+do $$
+declare ok boolean := false;
+begin
+  insert into public.attribution_touchpoints
+    (brand_id, platform, external_event_id, journey_key, occurred_at, conversions, revenue)
+  values ('aaaaaaaa-0000-0000-0000-000000000001', 'facebook', 'order-1001', 'visitor-77',
+          '2026-09-03T12:00:00Z', 1, 300);
+
+  -- A retried conversion webhook must not record the sale twice: that would
+  -- inflate revenue and every ROAS figure derived from it.
+  begin
+    insert into public.attribution_touchpoints
+      (brand_id, platform, external_event_id, occurred_at, conversions, revenue)
+    values ('aaaaaaaa-0000-0000-0000-000000000001', 'facebook', 'order-1001',
+            '2026-09-03T12:00:00Z', 1, 300);
+  exception when unique_violation then ok := true;
+  end;
+
+  insert into _results values ('attribution: duplicate event id rejected', ok,
+    case when ok then 'unique violation raised' else 'DOUBLE-COUNTED CONVERSION ALLOWED' end);
+
+  -- The same event id under ANOTHER brand is a different event.
+  ok := true;
+  begin
+    insert into public.attribution_touchpoints
+      (brand_id, platform, external_event_id, occurred_at, conversions, revenue)
+    values ('bbbbbbbb-0000-0000-0000-000000000001', 'facebook', 'order-1001',
+            '2026-09-03T12:00:00Z', 1, 300);
+  exception when others then ok := false;
+  end;
+  insert into _results values ('attribution: event ids are scoped per brand', ok, '');
+end $$;
+
+-- --- Recommendations require evidence --------------------------------------
+do $$
+declare
+  rec public.ai_recommendations;
+  ok boolean := false;
+  open_rows integer;
+begin
+  -- A recommendation the user cannot audit is indistinguishable from a
+  -- fabricated one, so the database refuses it.
+  begin
+    rec := public.upsert_recommendation(
+      'aaaaaaaa-0000-0000-0000-000000000001', null, 'engagement_declining',
+      'Engagement is falling', 'Do something.', 'high', 'improve_hooks',
+      0.7, '{}'::jsonb, 30, 5000, 'deterministic', null);
+  exception when others then ok := true;
+  end;
+  insert into _results values ('recommendations: empty evidence rejected', ok,
+    case when ok then 'raised' else 'STORED WITHOUT EVIDENCE' end);
+
+  ok := false;
+  begin
+    rec := public.upsert_recommendation(
+      'aaaaaaaa-0000-0000-0000-000000000001', null, 'engagement_declining',
+      'Engagement is falling', 'Do something.', 'high', 'improve_hooks',
+      1.5, '{"engagementRate":0.02}'::jsonb, 30, 5000, 'deterministic', null);
+  exception when others then ok := true;
+  end;
+  insert into _results values ('recommendations: out-of-range confidence rejected', ok,
+    case when ok then 'raised' else 'CONFIDENCE > 1 ACCEPTED' end);
+
+  -- A valid one.
+  rec := public.upsert_recommendation(
+    'aaaaaaaa-0000-0000-0000-000000000001', null, 'engagement_declining',
+    'Engagement is falling', 'Try shorter hooks.', 'high', 'improve_hooks',
+    0.62, '{"engagementRate":0.02,"previousEngagementRate":0.05}'::jsonb, 30, 5000, 'deterministic', null);
+
+  insert into _results values ('recommendations: valid row stored with confidence', rec.confidence = 0.620,
+    format('confidence %s', rec.confidence));
+
+  -- Regenerating must REFRESH the open row, not stack duplicates every cron run.
+  rec := public.upsert_recommendation(
+    'aaaaaaaa-0000-0000-0000-000000000001', null, 'engagement_declining',
+    'Engagement is still falling', 'Try shorter hooks and a new opening frame.', 'high', 'improve_hooks',
+    0.71, '{"engagementRate":0.018,"previousEngagementRate":0.05}'::jsonb, 30, 6000, 'ai', 'claude');
+
+  select count(*) into open_rows from public.ai_recommendations
+   where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001'
+     and signal = 'engagement_declining' and status = 'open';
+
+  insert into _results values ('recommendations: regenerating refreshes rather than duplicates', open_rows = 1,
+    format('%s open rows', open_rows));
+  insert into _results values ('recommendations: refresh updates confidence', rec.confidence = 0.710,
+    format('confidence %s', rec.confidence));
+
+  -- A dismissed recommendation must stay dismissed: the unique index and the
+  -- update both scope to status = 'open'.
+  update public.ai_recommendations set status = 'dismissed'
+   where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001' and signal = 'engagement_declining';
+
+  rec := public.upsert_recommendation(
+    'aaaaaaaa-0000-0000-0000-000000000001', null, 'engagement_declining',
+    'Engagement is falling again', 'New advice.', 'high', 'improve_hooks',
+    0.5, '{"engagementRate":0.019}'::jsonb, 30, 5000, 'deterministic', null);
+
+  select count(*) into open_rows from public.ai_recommendations
+   where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001'
+     and signal = 'engagement_declining' and status = 'dismissed';
+
+  insert into _results values ('recommendations: a dismissed row is not resurrected', open_rows = 1,
+    format('%s dismissed rows', open_rows));
+end $$;
+
+-- --- Ingestion cursor ------------------------------------------------------
+do $$
+declare ok boolean := false;
+begin
+  insert into public.analytics_ingestion_state (brand_id, platform, social_account_id, last_ingested_date)
+  values ('aaaaaaaa-0000-0000-0000-000000000001', 'instagram',
+          'a0000000-0000-0000-0000-0000000000a1', '2026-09-01');
+
+  -- One cursor per (brand, platform, account): two would race and create gaps.
+  begin
+    insert into public.analytics_ingestion_state (brand_id, platform, social_account_id)
+    values ('aaaaaaaa-0000-0000-0000-000000000001', 'instagram',
+            'a0000000-0000-0000-0000-0000000000a1');
+  exception when unique_violation then ok := true;
+  end;
+
+  insert into _results values ('analytics: one ingestion cursor per account', ok,
+    case when ok then 'unique violation raised' else 'DUPLICATE CURSOR ALLOWED' end);
+end $$;
+
+-- --- RLS: analytics are readable but not writable by tenants ---------------
+set role authenticated;
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+do $$
+declare n integer;
+begin
+  select count(*) into n from public.analytics_daily;
+  insert into _results values ('rls: Alice sees only her own analytics', n > 0 and n = (
+    select count(*) from public.analytics_daily
+     where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001'), format('%s rows', n));
+
+  select count(*) into n from public.post_metrics;
+  insert into _results values ('rls: Alice sees only her own post metrics', n = 2, format('%s rows', n));
+
+  select count(*) into n from public.ai_recommendations;
+  insert into _results values ('rls: Alice sees her own recommendations', n > 0, format('%s rows', n));
+
+  select count(*) into n from public.analytics_ingestion_state;
+  insert into _results values ('rls: Alice sees her own ingestion state', n = 1, format('%s rows', n));
+
+  select count(*) into n from public.attribution_touchpoints
+   where brand_id = 'bbbbbbbb-0000-0000-0000-000000000001';
+  insert into _results values ('rls: Alice cannot read Bob''s touchpoints', n = 0, format('%s rows', n));
+end $$;
+
+do $$
+declare affected integer;
+begin
+  -- A tenant that could write its own analytics could manufacture the evidence
+  -- its recommendations cite, which makes the whole confidence mechanism
+  -- worthless.
+  insert into public.analytics_daily (brand_id, platform, metric_date, impressions)
+  values ('aaaaaaaa-0000-0000-0000-000000000001', 'instagram', '2026-09-20', 999999);
+  insert into _results values ('rls: tenant cannot insert analytics', false, 'INSERT SUCCEEDED');
+exception when insufficient_privilege or others then
+  insert into _results values ('rls: tenant cannot insert analytics', true, 'refused');
+end $$;
+
+do $$
+declare affected integer;
+begin
+  update public.analytics_daily set impressions = 999999 where true;
+  get diagnostics affected = row_count;
+  insert into _results values ('rls: tenant cannot rewrite analytics', affected = 0,
+    format('%s rows updated', affected));
+
+  update public.post_metrics set impressions = 999999 where true;
+  get diagnostics affected = row_count;
+  insert into _results values ('rls: tenant cannot rewrite post metrics', affected = 0,
+    format('%s rows updated', affected));
+end $$;
+
+do $$
+declare affected integer;
+begin
+  -- Resolving a recommendation IS the tenant's to do.
+  update public.ai_recommendations set status = 'applied'
+   where brand_id = 'aaaaaaaa-0000-0000-0000-000000000001';
+  get diagnostics affected = row_count;
+  insert into _results values ('rls: tenant CAN resolve its own recommendation', affected > 0,
+    format('%s rows updated', affected));
+end $$;
+
+do $$
+declare affected integer;
+begin
+  -- Recording a touchpoint from the tenant's own site or CRM is legitimate.
+  insert into public.attribution_touchpoints
+    (brand_id, platform, external_event_id, occurred_at, conversions, revenue)
+  values ('aaaaaaaa-0000-0000-0000-000000000001', 'instagram', 'order-2002',
+          '2026-09-04T09:00:00Z', 1, 120);
+  insert into _results values ('rls: tenant CAN record its own touchpoint', true, '');
+exception when others then
+  insert into _results values ('rls: tenant CAN record its own touchpoint', false, 'INSERT REFUSED');
+end $$;
+
+do $$
+declare ok boolean := false;
+begin
+  -- But not into someone else's brand.
+  begin
+    insert into public.attribution_touchpoints
+      (brand_id, platform, external_event_id, occurred_at, conversions, revenue)
+    values ('bbbbbbbb-0000-0000-0000-000000000001', 'instagram', 'order-3003',
+            '2026-09-04T09:00:00Z', 1, 500);
+  exception when others then ok := true;
+  end;
+  insert into _results values ('rls: tenant cannot record a touchpoint on another brand', ok,
+    case when ok then 'refused' else 'CROSS-TENANT INSERT ALLOWED' end);
+end $$;
+
+set role anon;
+reset request.jwt.claim.sub;
+
+do $$
+declare n integer;
+begin
+  select count(*) into n from public.analytics_daily;
+  insert into _results values ('rls: anonymous cannot read analytics', n = 0, format('%s rows', n));
+
+  select count(*) into n from public.ai_recommendations;
+  insert into _results values ('rls: anonymous cannot read recommendations', n = 0, format('%s rows', n));
+
+  select count(*) into n from public.post_metrics;
+  insert into _results values ('rls: anonymous cannot read post metrics', n = 0, format('%s rows', n));
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- The two superseded tables the audit found with RLS switched off.
+--
+-- 20260922000014 enables RLS on both with NO policies and revokes tenant
+-- privileges. Both halves are asserted, because either alone can be undone by
+-- a later migration without anyone noticing: a `grant all on all tables` would
+-- restore the privilege, and RLS could be disabled while the revoke stayed.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  rls_media boolean;
+  rls_pav boolean;
+  pol_media integer;
+  pol_pav integer;
+begin
+  select relrowsecurity into rls_media from pg_class
+   where oid = 'public.media_jobs'::regclass;
+  select relrowsecurity into rls_pav from pg_class
+   where oid = 'public.product_asset_versions'::regclass;
+
+  insert into _results values
+    ('rls: media_jobs has row level security enabled', coalesce(rls_media, false),
+     format('relrowsecurity=%s', rls_media)),
+    ('rls: product_asset_versions has row level security enabled', coalesce(rls_pav, false),
+     format('relrowsecurity=%s', rls_pav));
+
+  select count(*) into pol_media from pg_policies
+   where schemaname = 'public' and tablename = 'media_jobs';
+  select count(*) into pol_pav from pg_policies
+   where schemaname = 'public' and tablename = 'product_asset_versions';
+
+  -- Zero policies is the intent, not an omission: RLS with an empty policy set
+  -- denies every tenant-role request while service_role still bypasses.
+  insert into _results values
+    ('rls: media_jobs grants no tenant policy', pol_media = 0, format('%s policies', pol_media)),
+    ('rls: product_asset_versions grants no tenant policy', pol_pav = 0, format('%s policies', pol_pav));
+
+end $$;
+
+-- Assert the BEHAVIOUR a tenant session gets, not the privilege bit.
+--
+-- The first version of this test checked has_table_privilege(...) = false and
+-- failed -- correctly. The migration's revoke does run, but this harness then
+-- replays Supabase's blanket `grant ... on all tables in schema public to
+-- authenticated`, exactly as a hosted project does, and the privilege comes
+-- back. So the revoke is real but not durable, and a test asserting it would
+-- have locked in a guarantee the platform does not actually provide.
+--
+-- What survives every grant is relrowsecurity. These assertions therefore
+-- describe the outcome that holds even after the privileges are restored:
+-- zero rows visible, and writes rejected.
+set role authenticated;
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+do $$
+declare
+  n_media integer;
+  n_pav integer;
+  insert_refused boolean := false;
+begin
+  select count(*) into n_media from public.media_jobs;
+  select count(*) into n_pav from public.product_asset_versions;
+
+  insert into _results values
+    ('rls: a tenant session reads no rows from media_jobs', n_media = 0, format('%s rows', n_media)),
+    ('rls: a tenant session reads no rows from product_asset_versions', n_pav = 0, format('%s rows', n_pav));
+
+  begin
+    insert into public.media_jobs (user_id, brand_id, kind)
+    values ('11111111-1111-1111-1111-111111111111',
+            '22222222-2222-2222-2222-222222222222', 'probe');
+    insert_refused := false;
+  exception when others then
+    -- Either an RLS violation or a FK violation is a refusal. The point is
+    -- that the row does not land: an accepted insert is what turns this table
+    -- into an existence oracle for another tenant's brand ids.
+    insert_refused := true;
+  end;
+
+  insert into _results values
+    ('rls: a tenant session cannot insert into media_jobs', insert_refused,
+     format('refused=%s', insert_refused));
+end $$;
+
+reset role;
+reset request.jwt.claim.sub;
+
+-- ---------------------------------------------------------------------------
+-- Every SECURITY DEFINER function must be unreachable from a tenant role.
+--
+-- Written as a sweep rather than a list of names so a definer function added
+-- later fails this test until it is explicitly revoked. A per-name check only
+-- ever catches the functions someone remembered to add to it -- which is how
+-- the four this migration fixes were missed in the first place.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  leaky text;
+  n integer;
+begin
+  select string_agg(p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')', ', '),
+         count(*)
+    into leaky, n
+    from pg_proc p
+    join pg_namespace ns on ns.oid = p.pronamespace
+   where ns.nspname = 'public'
+     and p.prosecdef
+     and (has_function_privilege('anon', p.oid, 'EXECUTE')
+       or has_function_privilege('authenticated', p.oid, 'EXECUTE'))
+     -- These three are meant to be callable: they are the RLS helpers the
+     -- policies themselves invoke, so revoking them would break every policy.
+     and p.proname not in ('is_workspace_member', 'can_access_brand', 'is_app_admin');
+
+  insert into _results values
+    ('rls: no unexpected SECURITY DEFINER function is executable by a tenant role',
+     coalesce(n, 0) = 0,
+     coalesce(leaky, 'none'));
+end $$;
+
+-- A positive control for the sweep above. If the query were simply wrong --
+-- wrong catalog, wrong privilege name -- it would report zero leaks forever
+-- and pass. The three RLS helpers ARE granted to authenticated on purpose, so
+-- an identical query without the exclusion must find them.
+do $$
+declare n integer;
+begin
+  select count(*) into n
+    from pg_proc p
+    join pg_namespace ns on ns.oid = p.pronamespace
+   where ns.nspname = 'public'
+     and p.prosecdef
+     and has_function_privilege('authenticated', p.oid, 'EXECUTE')
+     and p.proname in ('is_workspace_member', 'can_access_brand', 'is_app_admin');
+
+  insert into _results values
+    ('rls: the definer sweep can actually see granted functions', n = 3,
+     format('%s of 3 helper functions visible', n));
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Phase 6: referral abuse controls.
+--
+-- A referral reward is free money, so each control is asserted directly rather
+-- than assumed from reading the migration. The exactly-once test is the one
+-- that matters: "pay a qualified referral" is the classic place a double-spend
+-- reappears after the credit system itself has been fixed.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_ref_a uuid := '11111111-1111-1111-1111-111111111111';  -- Alice, seeded above
+  v_ref_b uuid := '22222222-2222-2222-2222-222222222222';  -- Bob, seeded above
+  v_referral uuid;
+  v_ok boolean;
+  v_reason text;
+  v_second_ok boolean;
+  v_balance_before integer;
+  v_balance_after integer;
+  v_ledger_rows integer;
+  v_blocked boolean;
+begin
+  -- 1. Self-referral is impossible at the schema level.
+  v_blocked := false;
+  begin
+    insert into public.referrals (referrer_id, referred_id, code)
+    values (v_ref_a, v_ref_a, 'SELFTEST');
+  exception when check_violation then
+    v_blocked := true;
+  end;
+  insert into _results values
+    ('referrals: self-referral is rejected by a check constraint', v_blocked,
+     format('blocked=%s', v_blocked));
+
+  -- 2. An account can be referred only once, ever.
+  insert into public.referrals (referrer_id, referred_id, code, status, qualified_at)
+  values (v_ref_a, v_ref_b, 'ALICE1', 'qualified', now())
+  returning id into v_referral;
+
+  v_blocked := false;
+  begin
+    insert into public.referrals (referrer_id, referred_id, code)
+    values (v_ref_b, v_ref_b, 'BOB1');
+  exception when unique_violation or check_violation then
+    v_blocked := true;
+  end;
+  insert into _results values
+    ('referrals: an account cannot be referred twice', v_blocked,
+     format('blocked=%s', v_blocked));
+
+  -- 3. The reward pays once and writes exactly one ledger row.
+  select credits_remaining into v_balance_before
+    from public.subscriptions where user_id = v_ref_a;
+
+  select rewarded, reason into v_ok, v_reason
+    from public.reward_referral(v_referral, 100);
+
+  select credits_remaining into v_balance_after
+    from public.subscriptions where user_id = v_ref_a;
+
+  insert into _results values
+    ('referrals: a qualified referral pays the referrer', coalesce(v_ok, false),
+     coalesce(v_reason, 'ok')),
+    ('referrals: the credit balance increases by the reward',
+     v_balance_after = v_balance_before + 100,
+     format('%s -> %s', v_balance_before, v_balance_after));
+
+  -- 4. A SECOND call must not pay again. This is the exactly-once property:
+  --    the status re-check happens while holding `for update`, so a concurrent
+  --    caller cannot observe 'qualified' twice.
+  select rewarded into v_second_ok from public.reward_referral(v_referral, 100);
+
+  select credits_remaining into v_balance_after
+    from public.subscriptions where user_id = v_ref_a;
+
+  insert into _results values
+    ('referrals: a second reward attempt is refused', not coalesce(v_second_ok, true),
+     format('second_rewarded=%s', v_second_ok)),
+    ('referrals: the balance did not move on the refused attempt',
+     v_balance_after = v_balance_before + 100,
+     format('balance=%s expected=%s', v_balance_after, v_balance_before + 100));
+
+  select count(*) into v_ledger_rows from public.credit_ledger
+   where user_id = v_ref_a and action = 'referral_reward';
+
+  insert into _results values
+    ('referrals: exactly one ledger row was written', v_ledger_rows = 1,
+     format('%s rows', v_ledger_rows));
+
+  -- 5. A non-qualified referral is not payable at all.
+  insert into public.referrals (referrer_id, referred_id, code, status)
+  values (v_ref_a, '33333333-3333-3333-3333-333333333333', 'ALICE2', 'pending')
+  returning id into v_referral;
+
+  select rewarded, reason into v_ok, v_reason
+    from public.reward_referral(v_referral, 100);
+
+  insert into _results values
+    ('referrals: a pending referral cannot be rewarded', not coalesce(v_ok, true),
+     coalesce(v_reason, 'unexpectedly rewarded'));
+
+  -- 6. A zero or negative reward is refused rather than silently written.
+  select rewarded into v_ok from public.reward_referral(v_referral, 0);
+  insert into _results values
+    ('referrals: a zero reward is refused', not coalesce(v_ok, true),
+     format('rewarded=%s', v_ok));
+end $$;
+
+-- The three new tables must be tenant-isolated like everything else.
+set role authenticated;
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';  -- Bob
+
+do $$
+declare
+  n integer;
+  v_blocked boolean;
+begin
+  -- Bob is the REFERRED party on Alice's row, not the referrer, so he must not
+  -- see it. Reading a referral you did not make leaks who referred whom.
+  select count(*) into n from public.referrals;
+  insert into _results values
+    ('rls: a referred user cannot read the referral that names them', n = 0,
+     format('%s rows', n));
+
+  -- Feedback is insert-only: a shared table readable by its inserters would
+  -- expose every other user's reports, which routinely quote their own data.
+  select count(*) into n from public.feedback;
+  insert into _results values
+    ('rls: feedback is not readable by a tenant session', n = 0, format('%s rows', n));
+
+  -- And a user cannot mint their own referral row, which would be a reward
+  -- printer: there is no INSERT policy at all.
+  v_blocked := false;
+  begin
+    insert into public.referrals (referrer_id, referred_id, code)
+    values ('22222222-2222-2222-2222-222222222222',
+            '33333333-3333-3333-3333-333333333333', 'FORGED');
+  exception when others then
+    v_blocked := true;
+  end;
+  insert into _results values
+    ('rls: a tenant cannot insert a referral row', v_blocked, format('blocked=%s', v_blocked));
+end $$;
+
+-- These blocks run as the table owner, not as a tenant. The preceding block
+-- leaves `role` set to `authenticated`, under which inserting a users row
+-- violates RLS -- which is the policy working correctly, and exactly why the
+-- reset belongs here rather than at the end of the previous block where it is
+-- easy to forget.
+reset role;
+reset request.jwt.claim.sub;
+
+-- ---------------------------------------------------------------------------
+-- Phase 7: account deletion.
+--
+-- Two of these assert the things that would have broken it, and neither would
+-- have shown up in testing with a fresh account:
+--
+--   * payments CASCADED, so deletion destroyed records the privacy policy says
+--     are retained for tax purposes -- and most jurisdictions require kept.
+--   * approvals.reviewer_id had no ON DELETE clause, so deleting anyone who
+--     had ever reviewed an approval failed with a foreign key violation. It
+--     would have worked for new accounts and failed for exactly the long-lived
+--     accounts most likely to ask.
+--
+-- Users are seeded through auth.users, because public.users.id references it
+-- and handle_new_user() builds the workspace and subscription from the trigger.
+-- ---------------------------------------------------------------------------
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('44444444-4444-4444-4444-444444444444', 'deleteme@owbrand.test', '{"full_name":"Delete Me"}');
+
+do $$
+declare
+  v_user uuid := '44444444-4444-4444-4444-444444444444';
+  v_brand uuid;
+  v_asset uuid;
+  v_result record;
+  v_payment_rows integer;
+  v_payment_user uuid;
+  v_brand_rows integer;
+  v_audit_rows integer;
+  v_approval_reviewer uuid;
+  v_user_rows integer;
+begin
+  insert into public.brands (user_id, workspace_id, name, description)
+  select v_user, w.id, 'Doomed Brand', 'about to be deleted'
+    from public.workspaces w where w.owner_id = v_user limit 1
+  returning id into v_brand;
+
+  insert into public.payments (user_id, paddle_transaction_id, amount, status)
+  values (v_user, 'txn_delete_test_1', 12.00, 'completed');
+
+  insert into public.content_assets (brand_id, user_id, type, status)
+  values (v_brand, v_user, 'post', 'draft')
+  returning id into v_asset;
+
+  -- brand_id is NOT NULL on approvals; asset_id alone is not enough.
+  insert into public.approvals (brand_id, asset_id, status, reviewer_id, notes)
+  values (v_brand, v_asset, 'approved', v_user, 'reviewed before deletion');
+
+  select * into v_result from public.delete_user_account(v_user, 'test');
+
+  insert into _results values
+    ('deletion: succeeds even when the user reviewed an approval',
+     coalesce(v_result.deleted, false), coalesce(v_result.detail, 'ok'));
+
+  select count(*) into v_user_rows from public.users where id = v_user;
+  insert into _results values
+    ('deletion: the user row is gone', v_user_rows = 0, format('%s rows', v_user_rows));
+
+  -- The FK violation this would have hit is why the constraint was changed.
+  select reviewer_id into v_approval_reviewer from public.approvals where asset_id = v_asset;
+  insert into _results values
+    ('deletion: a reviewed approval survives with a null reviewer',
+     v_approval_reviewer is null, format('reviewer_id=%s', v_approval_reviewer));
+
+  -- Payments are RETAINED, anonymised.
+  -- No max(uuid) in Postgres, and aggregating an identifier would be a strange
+  -- thing to want anyway: there is exactly one row with this transaction id.
+  select count(*) into v_payment_rows
+    from public.payments where paddle_transaction_id = 'txn_delete_test_1';
+  select user_id into v_payment_user
+    from public.payments where paddle_transaction_id = 'txn_delete_test_1';
+
+  insert into _results values
+    ('deletion: the payment row is retained', v_payment_rows = 1,
+     format('%s rows', v_payment_rows)),
+    ('deletion: the retained payment is anonymised', v_payment_user is null,
+     format('user_id=%s', v_payment_user));
+
+  select count(*) into v_brand_rows from public.brands where id = v_brand;
+  insert into _results values
+    ('deletion: brands are removed', v_brand_rows = 0, format('%s rows', v_brand_rows));
+
+  -- Written before the delete, so it outlives the account it describes.
+  select count(*) into v_audit_rows from public.audit_logs
+   where action = 'account.deleted' and entity_id = v_user::text;
+  insert into _results values
+    ('deletion: an audit row survives the account it describes', v_audit_rows = 1,
+     format('%s rows', v_audit_rows));
+
+  -- A second call is a reported no-op, not an exception.
+  select * into v_result from public.delete_user_account(v_user, 'test');
+  insert into _results values
+    ('deletion: deleting an absent user reports failure rather than raising',
+     not coalesce(v_result.deleted, true),
+     coalesce(v_result.detail, 'unexpectedly deleted'));
+end $$;
+
+-- The last admin must be undeletable. Locking everybody out of the admin panel
+-- is not recoverable from inside the product, and a deletion request is exactly
+-- when somebody does it by accident.
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('55555555-5555-5555-5555-555555555555', 'only-admin@owbrand.test', '{"full_name":"Only Admin"}');
+
+do $$
+declare
+  v_admin uuid := '55555555-5555-5555-5555-555555555555';
+  v_result record;
+  v_still_there integer;
+begin
+  update public.users set role = 'admin' where id = v_admin;
+  update public.users set role = 'user' where role = 'admin' and id <> v_admin;
+
+  select * into v_result from public.delete_user_account(v_admin, 'test');
+  select count(*) into v_still_there from public.users where id = v_admin;
+
+  insert into _results values
+    ('deletion: refuses to delete the only admin', not coalesce(v_result.deleted, true),
+     coalesce(v_result.detail, 'unexpectedly deleted')),
+    ('deletion: the only admin is still present afterwards', v_still_there = 1,
+     format('%s rows', v_still_there));
+end $$;
+
+reset role;
+reset request.jwt.claim.sub;
+
+-- ---------------------------------------------------------------------------
+-- Dead-letter queue (Phase 7)
+-- ---------------------------------------------------------------------------
+-- The distinction being tested is the whole point of the change: a failure
+-- retrying cannot fix must NOT land in the same bucket as one that ran out of
+-- attempts, because after an incident an operator replays the second set and
+-- must not replay the first.
+do $$
+declare
+  v_brand uuid;
+  v_post uuid;
+  v_job uuid;
+  v_permanent uuid;
+  v_status text;
+  v_reason text;
+  v_attempts integer;
+  v_requeue integer;
+  v_result record;
+  v_post_status text;
+begin
+  select id into v_brand from public.brands limit 1;
+
+  -- A job that will exhaust its retries.
+  insert into public.social_posts (brand_id, platform, caption, status)
+  values (v_brand, 'facebook', 'dead letter test', 'queued')
+  returning id into v_post;
+
+  insert into public.publishing_jobs (social_post_id, brand_id, platform, status, attempts, max_attempts, idempotency_key)
+  values (v_post, v_brand, 'facebook', 'queued', 2, 3, 'dl-test-' || gen_random_uuid())
+  returning id into v_job;
+
+  -- Third attempt of three: retryable, and out of budget.
+  perform public.complete_publishing_job(
+    v_job, 'retryable_failure', null, null, 'transient', 'platform_500', 'upstream 500');
+
+  select status, dead_letter_reason, attempts
+    into v_status, v_reason, v_attempts
+    from public.publishing_jobs where id = v_job;
+
+  insert into _results values
+    ('dead letter: exhausted retries land in dead_letter, not failed', v_status = 'dead_letter', v_status),
+    ('dead letter: the reason records the ceiling', v_reason like 'attempt ceiling reached%%',
+     coalesce(v_reason, 'null')),
+    ('dead letter: the attempt count is preserved', v_attempts = 3, format('%s', v_attempts));
+
+  -- The customer-visible post reads as failed either way: the distinction is
+  -- operational and should not leak into the product as a third state.
+  select status into v_post_status from public.social_posts where id = v_post;
+  insert into _results values
+    ('dead letter: the post reads as failed to the customer', v_post_status = 'failed', v_post_status);
+
+  -- A permanent failure with attempts to spare must NOT be dead-lettered.
+  insert into public.social_posts (brand_id, platform, caption, status)
+  values (v_brand, 'facebook', 'permanent failure test', 'queued')
+  returning id into v_post;
+
+  insert into public.publishing_jobs (social_post_id, brand_id, platform, status, attempts, max_attempts, idempotency_key)
+  values (v_post, v_brand, 'facebook', 'queued', 0, 5, 'dl-perm-' || gen_random_uuid())
+  returning id into v_permanent;
+
+  perform public.complete_publishing_job(
+    v_permanent, 'permanent_failure', null, null, 'permanent', 'post_missing', 'gone');
+
+  select status into v_status from public.publishing_jobs where id = v_permanent;
+  insert into _results values
+    ('dead letter: a permanent failure stays failed', v_status = 'failed', v_status);
+
+  -- Requeue moves the dead-lettered job and resets its budget.
+  select * into v_result from public.requeue_dead_letter_job(v_job);
+  select status, attempts, requeue_count
+    into v_status, v_attempts, v_requeue
+    from public.publishing_jobs where id = v_job;
+
+  insert into _results values
+    ('dead letter: requeue reports success', coalesce(v_result.requeued, false),
+     coalesce(v_result.detail, 'no detail')),
+    ('dead letter: requeue returns the job to the queue', v_status = 'queued', v_status),
+    -- Without the reset the job dead-letters again on its first failure, which
+    -- is indistinguishable from the requeue not working.
+    ('dead letter: requeue resets the attempt budget', v_attempts = 0, format('%s', v_attempts)),
+    ('dead letter: requeue is counted', v_requeue = 1, format('%s', v_requeue));
+
+  -- A second requeue of a now-queued job must refuse: two concurrent requeues
+  -- that both succeeded would publish the same post twice.
+  select * into v_result from public.requeue_dead_letter_job(v_job);
+  insert into _results values
+    ('dead letter: requeue refuses a job that is not dead-lettered',
+     not coalesce(v_result.requeued, true), coalesce(v_result.detail, 'unexpectedly requeued'));
+
+  -- Refusing a permanently failed job is the case that protects a customer
+  -- from having abandoned content republished by a broad sweep.
+  select * into v_result from public.requeue_dead_letter_job(v_permanent);
+  insert into _results values
+    ('dead letter: requeue refuses a permanently failed job',
+     not coalesce(v_result.requeued, true), coalesce(v_result.detail, 'unexpectedly requeued'));
+
+  select * into v_result from public.requeue_dead_letter_job(gen_random_uuid());
+  insert into _results values
+    ('dead letter: requeueing an absent job reports failure rather than raising',
+     not coalesce(v_result.requeued, true), coalesce(v_result.detail, 'no detail'));
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Public API column contract (Phase 7)
+-- ---------------------------------------------------------------------------
+-- Every column /api/v1 selects, asserted to exist.
+--
+-- This exists because two of these endpoints were written against columns that
+-- were not there: content_assets was queried for `kind`, `title` and `body`
+-- when it has `type`, `url` and `caption`, and brands for `tagline` and
+-- `industry`, which it has never had. TypeScript cannot catch it — a Supabase
+-- select list is a string — and the failure surfaces as a 500 for an
+-- integrator, in a route no dashboard exercises.
+--
+-- Adding a column to an API response means adding it here.
+do $$
+declare
+  v_missing text;
+  v_expected text[];
+  v_table text;
+  v_pairs text[][] := array[
+    array['brands', 'id,name,description,logo_url,brand_colors,created_at'],
+    array['social_posts', 'id,brand_id,platform,status,caption,scheduled_for,published_at,external_url,created_at'],
+    array['content_assets', 'id,brand_id,product_id,type,url,caption,status,created_at'],
+    array['api_keys', 'id,user_id,name,key_hash,key_prefix,scopes,last_used_at,expires_at,revoked_at,created_at'],
+    array['webhook_endpoints', 'id,user_id,brand_id,url,secret,events,enabled,consecutive_failures,created_at'],
+    array['webhook_deliveries', 'id,endpoint_id,event_type,payload,status,attempts,max_attempts,next_attempt_at,response_status,delivered_at,created_at']
+  ];
+begin
+  for i in 1 .. array_length(v_pairs, 1) loop
+    v_table := v_pairs[i][1];
+    v_expected := string_to_array(v_pairs[i][2], ',');
+
+    select string_agg(c, ', ') into v_missing
+      from unnest(v_expected) as c
+     where not exists (
+       select 1 from information_schema.columns
+        where table_schema = 'public' and table_name = v_table and column_name = c
+     );
+
+    insert into _results values
+      (format('api contract: %s has every column /api/v1 selects', v_table),
+       v_missing is null,
+       coalesce('missing: ' || v_missing, 'ok'));
+  end loop;
+end $$;
+
+-- A positive control: the check must be able to FAIL. Without this, a typo in
+-- the query above would report every table clean forever.
+do $$
+declare v_found boolean;
+begin
+  select exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'brands'
+       and column_name = 'a_column_that_does_not_exist'
+  ) into v_found;
+
+  insert into _results values
+    ('api contract: the column check can detect an absent column', not v_found,
+     case when v_found then 'found a column that cannot exist' else 'ok' end);
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Admin credit grants (Phase 9)
+-- ---------------------------------------------------------------------------
+-- This function moves money-equivalent value, so every refusal is asserted.
+-- The one that matters most is the first: it re-checks the caller's admin role
+-- itself rather than trusting the route, because a privileged function that
+-- trusts its caller is one route bug away from being a self-service credit
+-- machine.
+do $$
+declare
+  v_admin uuid;
+  v_user uuid;
+  v_result record;
+  v_before integer;
+  v_ledger integer;
+  v_audit integer;
+begin
+  select id into v_admin from public.users where role = 'admin' limit 1;
+  select id into v_user from public.users where role <> 'admin' limit 1;
+
+  -- Ensure the target has a subscription to grant against.
+  insert into public.subscriptions (user_id, plan, status, credits_remaining)
+  values (v_user, 'free', 'active', 10)
+  on conflict (user_id) do update set credits_remaining = 10, status = 'active';
+
+  select credits_remaining into v_before from public.subscriptions where user_id = v_user;
+
+  -- A non-admin caller must be refused.
+  select * into v_result from public.grant_credits(v_user, v_user, 50, 'self service');
+  insert into _results values
+    ('grants: refuses a caller who is not an admin', not coalesce(v_result.granted, true),
+     coalesce(v_result.detail, 'unexpectedly granted'));
+
+  select credits_remaining into v_ledger from public.subscriptions where user_id = v_user;
+  insert into _results values
+    ('grants: a refused grant changes no balance', v_ledger = v_before,
+     format('%s -> %s', v_before, v_ledger));
+
+  -- A grant with no reason must be refused: it is the one thing an audit
+  -- cannot reconstruct afterwards.
+  select * into v_result from public.grant_credits(v_admin, v_user, 50, '  ');
+  insert into _results values
+    ('grants: requires a reason', not coalesce(v_result.granted, true),
+     coalesce(v_result.detail, 'unexpectedly granted'));
+
+  -- Bounded in both directions. A typo of 100000 is easier to make than notice.
+  select * into v_result from public.grant_credits(v_admin, v_user, 100000, 'oops');
+  insert into _results values
+    ('grants: refuses an absurd amount', not coalesce(v_result.granted, true),
+     coalesce(v_result.detail, 'unexpectedly granted'));
+
+  select * into v_result from public.grant_credits(v_admin, v_user, 0, 'nothing');
+  insert into _results values
+    ('grants: refuses a zero grant', not coalesce(v_result.granted, true),
+     coalesce(v_result.detail, 'unexpectedly granted'));
+
+  -- The happy path.
+  select * into v_result from public.grant_credits(v_admin, v_user, 25, 'incident 2026-09-22');
+  insert into _results values
+    ('grants: a valid grant succeeds', coalesce(v_result.granted, false),
+     coalesce(v_result.detail, 'no detail')),
+    ('grants: the balance increases by the amount', v_result.new_balance = v_before + 25,
+     format('%s -> %s', v_before, v_result.new_balance));
+
+  select count(*) into v_ledger from public.credit_ledger
+   where user_id = v_user and action = 'admin_grant' and reason = 'incident 2026-09-22';
+  insert into _results values
+    ('grants: a ledger entry records the grant', v_ledger = 1, format('%s rows', v_ledger));
+
+  select count(*) into v_audit from public.audit_logs
+   where action = 'credits.granted' and entity_id = v_user::text and actor_id = v_admin;
+  insert into _results values
+    ('grants: an audit row names the admin who granted', v_audit = 1, format('%s rows', v_audit));
+
+  -- A negative grant (clawback) is allowed and must not go below zero.
+  select * into v_result from public.grant_credits(v_admin, v_user, -100000, 'clawback');
+  insert into _results values
+    ('grants: refuses an absurd clawback', not coalesce(v_result.granted, true),
+     coalesce(v_result.detail, 'unexpectedly granted'));
+
+  select * into v_result from public.grant_credits(v_admin, v_user, -1000, 'clawback');
+  insert into _results values
+    ('grants: a clawback floors at zero rather than going negative',
+     coalesce(v_result.new_balance, -1) = 0, format('%s', coalesce(v_result.new_balance, -1)));
+
+  -- Granting to someone with no subscription reports failure rather than raising.
+  select * into v_result from public.grant_credits(v_admin, gen_random_uuid(), 10, 'ghost');
+  insert into _results values
+    ('grants: granting to an absent user reports failure rather than raising',
+     not coalesce(v_result.granted, true), coalesce(v_result.detail, 'no detail'));
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Feature flags (Phase 9)
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_seeded integer;
+  v_rls boolean;
+  v_written integer;
+begin
+  select count(*) into v_seeded from public.feature_flags;
+  insert into _results values
+    ('flags: the flags the product checks are seeded', v_seeded >= 6, format('%s flags', v_seeded));
+
+  select relrowsecurity into v_rls from pg_class where relname = 'feature_flags';
+  insert into _results values
+    ('flags: RLS is enabled', coalesce(v_rls, false), format('%s', v_rls));
+
+  /*
+   * Tested as BEHAVIOUR, not as a privilege bit.
+   *
+   * The migration revokes UPDATE from `authenticated`, and that revoke does
+   * not survive: Supabase re-applies a blanket `grant ... on all tables ... to
+   * authenticated`, which this harness replays. The same finding is recorded
+   * in migration 20260922000014 and in FIXES.md.
+   *
+   * What IS durable is RLS. The policy on this table covers SELECT only, so
+   * with row-level security enabled and no write policy, an UPDATE by a tenant
+   * affects zero rows whatever the grants say. Asserting the privilege bit
+   * would encode a guarantee the platform does not provide; asserting the
+   * outcome tests the control that actually holds.
+   */
+  set local role authenticated;
+  begin
+    update public.feature_flags set enabled = not enabled where key = 'public_api';
+    get diagnostics v_written = row_count;
+  exception when insufficient_privilege then
+    -- Also an acceptable outcome: refused outright rather than silently
+    -- affecting nothing.
+    v_written := 0;
+  end;
+  reset role;
+
+  insert into _results values
+    ('flags: a tenant UPDATE changes no rows', v_written = 0, format('%s rows written', v_written));
+
+  -- Positive control: the service role CAN write, so the assertion above is
+  -- measuring RLS rather than a broken table.
+  update public.feature_flags set description = description where key = 'public_api';
+  get diagnostics v_written = row_count;
+  insert into _results values
+    ('flags: the service role can still write', v_written = 1, format('%s rows written', v_written));
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Report
+-- ---------------------------------------------------------------------------
+\set QUIET off
+\pset tuples_only on
+\pset format unaligned
+
+select case when passed then 'PASS  ' else 'FAIL  ' end || name ||
+       case when passed then '' else '   [' || detail || ']' end
+  from _results order by ctid;
+
+select format('SUMMARY %s/%s passed, %s failed',
+              count(*) filter (where passed), count(*), count(*) filter (where not passed))
+  from _results;
+
+-- Non-zero exit when anything failed, so CI notices.
+do $$
+declare failures integer;
+begin
+  select count(*) into failures from _results where not passed;
+  if failures > 0 then
+    raise exception 'RLS_TESTS_FAILED: % assertion(s) failed', failures;
+  end if;
+end $$;

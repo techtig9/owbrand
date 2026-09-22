@@ -1,0 +1,159 @@
+/**
+ * The public changelog.
+ *
+ * A typed array rather than MDX files, because every entry is two lines and a
+ * date — the overhead of a file per release would guarantee the log goes stale.
+ *
+ * Newest first, and each entry says what CHANGED for a user rather than what
+ * was committed. "Refactored the credit ledger" is not a changelog entry; "you
+ * are no longer charged for a generation that failed" is.
+ *
+ * Entries describing work that is not finished belong in ROADMAP.md, not here.
+ * A changelog is a record of things that are true now.
+ */
+
+export type ChangeKind = 'added' | 'fixed' | 'changed' | 'security';
+
+export interface ChangelogEntry {
+  date: string;
+  version?: string;
+  changes: Array<{ kind: ChangeKind; text: string }>;
+}
+
+export const CHANGELOG: ChangelogEntry[] = [
+  {
+    date: '2026-09-22',
+    version: 'Phase 9',
+    changes: [
+      {
+        kind: 'added' as const,
+        text: 'A help centre covering the things people actually get stuck on: why a post did not publish, what uses a credit, what the consistency check does and does not measure, and what connecting an account involves.',
+      },
+      {
+        kind: 'added' as const,
+        text: 'A contact form. If this deployment cannot send email, it shows an address instead of a form that would quietly drop your message.',
+      },
+      {
+        kind: 'added' as const,
+        text: 'You are now emailed when a scheduled post fails to publish, rather than finding out days later from the platform.',
+      },
+    ],
+  },
+
+  {
+    date: '2026-09-22',
+    version: 'Phase 8',
+    changes: [
+      {
+        kind: 'added' as const,
+        text: 'A consistency check on the Brand Kit page. Paste any copy — a caption, an email, a page an agency wrote — and it tells you which banned words, forbidden claims and writing rules it breaks, quoting the exact text. Free, no credits, no AI call.',
+      },
+      {
+        kind: 'added' as const,
+        text: 'Download your brand kit as a zip: design tokens as CSS, Tailwind and SCSS, a self-contained palette sheet you can open in a browser, and a voice guide covering the words your brand does and does not use.',
+      },
+      {
+        kind: 'added' as const,
+        text: 'A month calendar showing everything scheduled and published, with the gaps. It names your longest upcoming gap and the day you have stacked posts — the things a queue sorted by date cannot show you.',
+      },
+      {
+        kind: 'fixed' as const,
+        text: 'The sidebar entry labelled “Calendar” opened a list, not a calendar. It is now called “Queue”, and Calendar opens the calendar.',
+      },
+    ],
+  },
+
+  {
+    date: '2026-09-22',
+    version: 'Phase 7',
+    changes: [
+      {
+        kind: 'added' as const,
+        text: 'You can delete your account and export all of your data from Settings. Deletion is immediate and needs no request. Until now the privacy policy said this was available while the button was disabled — which made the policy wrong, not just the button.',
+      },
+      {
+        kind: 'added' as const,
+        text: 'A read-only API and signed webhooks. Create a key in Settings; the documentation is at /docs/api.',
+      },
+      {
+        kind: 'fixed' as const,
+        text: 'A post that failed because a platform was down is now told apart from one that cannot be published at all. Previously both showed as failed, and there was no way for us to retry only the ones that would now work.',
+      },
+      {
+        kind: 'security' as const,
+        text: 'Media URLs are checked before they are stored. A URL pointing at a private address is refused rather than accepted and failing hours later inside a publishing job.',
+      },
+      {
+        kind: 'security' as const,
+        text: "Brand information is now passed to the AI inside a boundary it cannot escape. On a shared workspace, one member could previously leave a writing rule that changed how every other member's generations behaved.",
+      },
+    ],
+  },
+
+  {
+    date: '2026-09-22',
+    changes: [
+      {
+        kind: 'added',
+        text: 'A setup checklist on the dashboard, derived from your actual account rather than stored flags — so it stops claiming a step is done when the thing it counted has been deleted.',
+      },
+      {
+        kind: 'added',
+        text: 'Credit usage is now metered on the dashboard, with an upgrade offer only when the remaining balance actually warrants one.',
+      },
+      {
+        kind: 'added',
+        text: 'A feedback button in the top bar. It sends the page you were on, so you do not have to describe where you were.',
+      },
+      {
+        kind: 'added',
+        text: 'A referral code per account. The reward is paid when the account you referred actually reaches a first successful generation, not when it signs up.',
+      },
+      {
+        kind: 'added',
+        text: 'A brand sketch you can try on the landing page without an account, where the deployment has an AI provider configured.',
+      },
+      {
+        kind: 'fixed',
+        text: 'The FAQ described three features that do not exist — a reel compositing step, a built-in code editor, and one-click deployment. All three are now stated accurately, including what is not built.',
+      },
+      {
+        kind: 'fixed',
+        text: '"Skip to main content" did nothing on the landing page and all four sign-in pages, because there was no main landmark to skip to.',
+      },
+      {
+        kind: 'security',
+        text: 'The scheduled-job endpoints no longer tell an anonymous caller that they exist, what they do, or which environment variable is missing.',
+      },
+      {
+        kind: 'security',
+        text: 'Two unused database tables had row-level security switched off. Both are now locked down.',
+      },
+      {
+        kind: 'security',
+        text: 'A missing billing webhook secret is now distinguishable from a forged signature, instead of both reporting "invalid signature".',
+      },
+    ],
+  },
+  {
+    date: '2026-09-08',
+    changes: [
+      {
+        kind: 'added',
+        text: 'A dark theme, designed rather than inverted, with a three-state light/dark/system control that remembers your choice.',
+      },
+      {
+        kind: 'added',
+        text: 'Command palette on ⌘K, and a navigation drawer on phones — the app was previously unreachable below tablet width except by typing URLs.',
+      },
+      {
+        kind: 'fixed',
+        text: 'The dashboard listed open recommendations from every account, not only your own.',
+      },
+      {
+        kind: 'changed',
+        text: 'Analytics now report an unmeasured metric as absent rather than as zero, so a chart no longer draws a confident line through data nobody collected.',
+      },
+    ],
+  },
+];

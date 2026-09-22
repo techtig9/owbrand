@@ -42,7 +42,7 @@ function NumberedList({ items }: { items: string[] }) {
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-ink font-display text-xs font-bold text-canvas">
             {i + 1}
           </span>
-          <p className="pt-0.5 text-sm leading-relaxed text-ink-soft">{item}</p>
+          <p className="pt-0.5 text-sm leading-relaxed text-content-secondary">{item}</p>
         </li>
       ))}
     </ol>
@@ -78,18 +78,18 @@ export function Help() {
           <h3 className="font-display text-xl font-semibold text-ink">What it provides</h3>
           <div className="mt-6 grid gap-5 sm:grid-cols-3">
             {WHAT_IT_PROVIDES.map((item) => (
-              <div key={item.title} className="rounded-2xl border border-line bg-white p-6">
-                <item.icon className="h-5 w-5 text-coral-500" strokeWidth={1.75} />
+              <div key={item.title} className="rounded-2xl border border-line bg-surface p-6">
+                <item.icon className="h-5 w-5 text-primary" strokeWidth={1.75} />
                 <h4 className="mt-4 font-display text-sm font-semibold text-ink">{item.title}</h4>
-                <p className="mt-2 text-sm leading-relaxed text-ink-soft">{item.body}</p>
+                <p className="mt-2 text-sm leading-relaxed text-content-secondary">{item.body}</p>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="mt-10 flex items-center gap-3 rounded-2xl border border-line bg-canvas-alt p-5 reveal">
-          <Rocket className="h-5 w-5 shrink-0 text-coral-500" />
-          <p className="text-sm text-ink-soft">
+        <div className="mt-10 flex items-center gap-3 rounded-2xl border border-line bg-surface-raised p-5 reveal">
+          <Rocket className="h-5 w-5 shrink-0 text-primary" />
+          <p className="text-sm text-content-secondary">
             Still have questions? Reach the Techtig team any time — see contact details in the footer.
           </p>
         </div>

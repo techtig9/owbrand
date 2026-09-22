@@ -1,5 +1,6 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { publicEnv } from '@/lib/env';
 
 /**
  * Use in Server Components, Route Handlers, and Server Actions.
@@ -9,7 +10,8 @@ import { cookies } from 'next/headers';
 export function supabaseServer() {
   const cookieStore = cookies();
 
-  return createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+  // Validated env module, not `process.env.X!` — see lib/supabase/admin.ts.
+  return createServerClient(publicEnv.supabaseUrl, publicEnv.supabaseAnonKey, {
     cookies: {
       get(name: string) {
         return cookieStore.get(name)?.value;

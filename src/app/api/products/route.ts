@@ -1,4 +1,99 @@
-import { NextResponse } from 'next/server'; import { z } from 'zod'; import { getCurrentUser } from '@/lib/supabase/server'; import { supabaseAdmin } from '@/lib/supabase/admin';
-const Body=z.object({brandId:z.string().uuid(),name:z.string().min(1).max(160),description:z.string().max(10000).optional(),category:z.string().max(100).optional(),price:z.number().nullable().optional()});
-export async function GET(req:Request){const user=await getCurrentUser();if(!user)return NextResponse.json({error:'Unauthorized'},{status:401});const url=new URL(req.url);const id=url.searchParams.get('brandId');const productId=url.searchParams.get('productId');const db=supabaseAdmin();const q=db.from('products').select('*').eq('brand_id',id||'').order('created_at',{ascending:false});const {data,error}=await q;if(productId){const {data:assets}=await db.from('product_assets').select('*').eq('product_id',productId).order('created_at',{ascending:false});return NextResponse.json({products:data||[],assets:assets||[],error:error?.message});}return NextResponse.json({products:data||[],error:error?.message});}
-export async function POST(req:Request){const user=await getCurrentUser();if(!user)return NextResponse.json({error:'Unauthorized'},{status:401});const p=Body.safeParse(await req.json());if(!p.success)return NextResponse.json({error:'Invalid product data.'},{status:400});const db=supabaseAdmin();const {data:brand}=await db.from('brands').select('id').eq('id',p.data.brandId).eq('user_id',user.id).maybeSingle();if(!brand)return NextResponse.json({error:'Brand not found.'},{status:404});const {data,error}=await db.from('products').insert({brand_id:p.data.brandId,name:p.data.name,description:p.data.description||'',category:p.data.category||'',price:p.data.price??null,slug:p.data.name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'')}).select().single();if(error)return NextResponse.json({error:error.message},{status:500});return NextResponse.json({product:data});}
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { routeHandler } from '@/lib/api/errors';
+import { parseJsonBody, parseSearchParams, boundedText, uuidSchema } from '@/lib/api/validate';
+import { requireUser, assertBrandAccess, assertProductAccess } from '@/lib/auth/guards';
+import { enforceRateLimit } from '@/lib/security/rate-limit';
+import { supabaseAdmin } from '@/lib/supabase/admin';
+
+// Reads the session cookie, so it can never be statically prerendered.
+export const dynamic = 'force-dynamic';
+
+/**
+ * SECURITY FIX (Phase 1)
+ * The previous GET filtered only on the client-supplied brandId, on a
+ * service-role client, with no ownership check — so any authenticated user
+ * could list any tenant's products. It also returned product_assets for an
+ * arbitrary productId with no check at all.
+ */
+
+const ListQuery = z.object({
+  brandId: uuidSchema,
+  productId: uuidSchema.optional(),
+});
+
+export const GET = routeHandler('/api/products', async (request: Request) => {
+  const user = await requireUser();
+  await enforceRateLimit('standard', user.id);
+
+  const { brandId, productId } = parseSearchParams(request, ListQuery);
+  const db = supabaseAdmin();
+
+  await assertBrandAccess(user.id, brandId, { db });
+
+  const { data: products, error } = await db
+    .from('products')
+    .select('id,brand_id,name,slug,description,category,price,currency,status,created_at')
+    .eq('brand_id', brandId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+
+  if (!productId) {
+    return NextResponse.json({ products: products ?? [] });
+  }
+
+  // Assets are only returned for a product the caller demonstrably owns, and
+  // the product must belong to the brand they just proved access to.
+  await assertProductAccess(user.id, productId, { db, brandId });
+
+  const { data: assets, error: assetsError } = await db
+    .from('product_assets')
+    .select('id,product_id,type,source,status,url,prompt,metadata,created_at')
+    .eq('product_id', productId)
+    .order('created_at', { ascending: false });
+
+  if (assetsError) throw assetsError;
+
+  return NextResponse.json({ products: products ?? [], assets: assets ?? [] });
+});
+
+const CreateProduct = z.object({
+  brandId: uuidSchema,
+  name: boundedText(1, 160),
+  description: boundedText(0, 10000).optional(),
+  category: boundedText(0, 100).optional(),
+  price: z.number().finite().nonnegative().max(100_000_000).nullable().optional(),
+});
+
+export const POST = routeHandler('/api/products', async (request: Request) => {
+  const user = await requireUser();
+  await enforceRateLimit('standard', user.id);
+
+  const body = await parseJsonBody(request, CreateProduct);
+  const db = supabaseAdmin();
+
+  await assertBrandAccess(user.id, body.brandId, { db });
+
+  const slug = body.name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+    .slice(0, 120);
+
+  const { data, error } = await db
+    .from('products')
+    .insert({
+      brand_id: body.brandId,
+      name: body.name,
+      description: body.description ?? '',
+      category: body.category ?? '',
+      price: body.price ?? null,
+      slug,
+    })
+    .select('id,brand_id,name,slug,description,category,price,currency,status,created_at')
+    .single();
+
+  if (error) throw error;
+  return NextResponse.json({ product: data }, { status: 201 });
+});
