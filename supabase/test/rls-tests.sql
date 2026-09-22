@@ -1354,6 +1354,149 @@ begin
      format('%s of 3 helper functions visible', n));
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- Phase 6: referral abuse controls.
+--
+-- A referral reward is free money, so each control is asserted directly rather
+-- than assumed from reading the migration. The exactly-once test is the one
+-- that matters: "pay a qualified referral" is the classic place a double-spend
+-- reappears after the credit system itself has been fixed.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_ref_a uuid := '11111111-1111-1111-1111-111111111111';  -- Alice, seeded above
+  v_ref_b uuid := '22222222-2222-2222-2222-222222222222';  -- Bob, seeded above
+  v_referral uuid;
+  v_ok boolean;
+  v_reason text;
+  v_second_ok boolean;
+  v_balance_before integer;
+  v_balance_after integer;
+  v_ledger_rows integer;
+  v_blocked boolean;
+begin
+  -- 1. Self-referral is impossible at the schema level.
+  v_blocked := false;
+  begin
+    insert into public.referrals (referrer_id, referred_id, code)
+    values (v_ref_a, v_ref_a, 'SELFTEST');
+  exception when check_violation then
+    v_blocked := true;
+  end;
+  insert into _results values
+    ('referrals: self-referral is rejected by a check constraint', v_blocked,
+     format('blocked=%s', v_blocked));
+
+  -- 2. An account can be referred only once, ever.
+  insert into public.referrals (referrer_id, referred_id, code, status, qualified_at)
+  values (v_ref_a, v_ref_b, 'ALICE1', 'qualified', now())
+  returning id into v_referral;
+
+  v_blocked := false;
+  begin
+    insert into public.referrals (referrer_id, referred_id, code)
+    values (v_ref_b, v_ref_b, 'BOB1');
+  exception when unique_violation or check_violation then
+    v_blocked := true;
+  end;
+  insert into _results values
+    ('referrals: an account cannot be referred twice', v_blocked,
+     format('blocked=%s', v_blocked));
+
+  -- 3. The reward pays once and writes exactly one ledger row.
+  select credits_remaining into v_balance_before
+    from public.subscriptions where user_id = v_ref_a;
+
+  select rewarded, reason into v_ok, v_reason
+    from public.reward_referral(v_referral, 100);
+
+  select credits_remaining into v_balance_after
+    from public.subscriptions where user_id = v_ref_a;
+
+  insert into _results values
+    ('referrals: a qualified referral pays the referrer', coalesce(v_ok, false),
+     coalesce(v_reason, 'ok')),
+    ('referrals: the credit balance increases by the reward',
+     v_balance_after = v_balance_before + 100,
+     format('%s -> %s', v_balance_before, v_balance_after));
+
+  -- 4. A SECOND call must not pay again. This is the exactly-once property:
+  --    the status re-check happens while holding `for update`, so a concurrent
+  --    caller cannot observe 'qualified' twice.
+  select rewarded into v_second_ok from public.reward_referral(v_referral, 100);
+
+  select credits_remaining into v_balance_after
+    from public.subscriptions where user_id = v_ref_a;
+
+  insert into _results values
+    ('referrals: a second reward attempt is refused', not coalesce(v_second_ok, true),
+     format('second_rewarded=%s', v_second_ok)),
+    ('referrals: the balance did not move on the refused attempt',
+     v_balance_after = v_balance_before + 100,
+     format('balance=%s expected=%s', v_balance_after, v_balance_before + 100));
+
+  select count(*) into v_ledger_rows from public.credit_ledger
+   where user_id = v_ref_a and action = 'referral_reward';
+
+  insert into _results values
+    ('referrals: exactly one ledger row was written', v_ledger_rows = 1,
+     format('%s rows', v_ledger_rows));
+
+  -- 5. A non-qualified referral is not payable at all.
+  insert into public.referrals (referrer_id, referred_id, code, status)
+  values (v_ref_a, '33333333-3333-3333-3333-333333333333', 'ALICE2', 'pending')
+  returning id into v_referral;
+
+  select rewarded, reason into v_ok, v_reason
+    from public.reward_referral(v_referral, 100);
+
+  insert into _results values
+    ('referrals: a pending referral cannot be rewarded', not coalesce(v_ok, true),
+     coalesce(v_reason, 'unexpectedly rewarded'));
+
+  -- 6. A zero or negative reward is refused rather than silently written.
+  select rewarded into v_ok from public.reward_referral(v_referral, 0);
+  insert into _results values
+    ('referrals: a zero reward is refused', not coalesce(v_ok, true),
+     format('rewarded=%s', v_ok));
+end $$;
+
+-- The three new tables must be tenant-isolated like everything else.
+set role authenticated;
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';  -- Bob
+
+do $$
+declare
+  n integer;
+  v_blocked boolean;
+begin
+  -- Bob is the REFERRED party on Alice's row, not the referrer, so he must not
+  -- see it. Reading a referral you did not make leaks who referred whom.
+  select count(*) into n from public.referrals;
+  insert into _results values
+    ('rls: a referred user cannot read the referral that names them', n = 0,
+     format('%s rows', n));
+
+  -- Feedback is insert-only: a shared table readable by its inserters would
+  -- expose every other user's reports, which routinely quote their own data.
+  select count(*) into n from public.feedback;
+  insert into _results values
+    ('rls: feedback is not readable by a tenant session', n = 0, format('%s rows', n));
+
+  -- And a user cannot mint their own referral row, which would be a reward
+  -- printer: there is no INSERT policy at all.
+  v_blocked := false;
+  begin
+    insert into public.referrals (referrer_id, referred_id, code)
+    values ('22222222-2222-2222-2222-222222222222',
+            '33333333-3333-3333-3333-333333333333', 'FORGED');
+  exception when others then
+    v_blocked := true;
+  end;
+  insert into _results values
+    ('rls: a tenant cannot insert a referral row', v_blocked, format('blocked=%s', v_blocked));
+end $$;
+
 reset role;
 reset request.jwt.claim.sub;
 
