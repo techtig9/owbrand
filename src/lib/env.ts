@@ -61,6 +61,20 @@ export const publicEnv = {
  * Server-only configuration
  * ------------------------------------------------------------------ */
 
+/**
+ * A non-negative number from the environment, with a fallback.
+ *
+ * Anything unparseable falls back rather than throwing. A typo in a budget
+ * variable must not take the whole deployment down — but it also must not
+ * silently become zero, which would refuse every generation, or Infinity,
+ * which would remove the cap entirely. Both are worse than the default.
+ */
+function positiveNumber(value: string | undefined, fallback: number): number {
+  if (value === undefined || value.trim() === '') return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
 export const serverEnv = {
   get supabaseServiceRoleKey(): string {
     assertServer('SUPABASE_SERVICE_ROLE_KEY');
@@ -93,6 +107,36 @@ export const serverEnv = {
     // Off by default: a mail on every login is noisy, and the master command
     // explicitly warns against sending excessive email.
     return flag(process.env.EMAIL_NOTIFY_SIGNIN, false);
+  },
+
+  /* --- AI spend controls --- */
+  /**
+   * Hard stop. When true, every generation is refused before a provider is
+   * contacted, regardless of budget.
+   *
+   * This exists because the only control that is guaranteed to work during an
+   * incident is one that needs no database and no arithmetic. A cap that has
+   * to read usage rows cannot help when the thing going wrong is the usage
+   * table, and a loop that is spending money is not the moment to discover
+   * that.
+   */
+  get aiKillSwitch(): boolean {
+    return flag(process.env.AI_KILL_SWITCH, false);
+  },
+  /**
+   * Rolling 24-hour ceiling on estimated spend across the whole deployment.
+   *
+   * Defaults to a real number rather than to "unlimited". A cap that is off
+   * until someone remembers to set it is not a cap — and the failure it
+   * defends against (a retry loop, a stuck job, a leaked key) happens at 3am
+   * on the deployment nobody configured. Raise it deliberately; 0 disables it.
+   */
+  get aiDailyBudgetUsd(): number {
+    return positiveNumber(process.env.AI_DAILY_BUDGET_USD, 25);
+  },
+  /** The same ceiling per user, so one account cannot consume the global one. */
+  get aiUserDailyBudgetUsd(): number {
+    return positiveNumber(process.env.AI_USER_DAILY_BUDGET_USD, 5);
   },
 
   /* --- Billing (Paddle) --- */

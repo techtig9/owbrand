@@ -10,7 +10,7 @@ import { isConfigured } from '@/lib/env';
 import { generateProductPhotos } from '@/lib/media/provider';
 import { recordAssetVersion } from '@/lib/media/asset-versions';
 import { getCurrentBrandBrain } from '@/lib/brand/store';
-import { buildBrandContext } from '@/lib/brand/guard';
+import { buildBrandContextText } from '@/lib/brand/guard';
 import { approvedFactsFor } from '@/lib/brand/product-facts';
 import { enqueueJob, updateJobState, primaryWorkspaceId } from '@/lib/jobs/job-store';
 import { reserveCredits, refundCredits } from '@/lib/credits';
@@ -77,7 +77,7 @@ export const POST = routeHandler('/api/creative/photo', async (request: Request)
   const prompt = buildPhotoPrompt({
     productName: String(product.name ?? ''),
     brandName: String(brand.name ?? ''),
-    brandContext: brain ? buildBrandContext(brain) : '',
+    brandContext: brain ? buildBrandContextText(brain) : '',
     photographyStyle: brain?.visualIdentity?.photography?.style ?? '',
     avoid: brain?.visualIdentity?.photography?.avoid ?? [],
     approvedFacts: approvedFacts.facts,

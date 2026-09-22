@@ -7,6 +7,7 @@
  */
 import { z, type ZodTypeAny, type output as ZodOutput } from 'zod';
 import { ApiError } from '@/lib/api/errors';
+import { isSafeUrl } from '@/lib/security/safe-url';
 
 const MAX_BODY_BYTES = 1_000_000; // 1 MB — JSON bodies are metadata, not uploads.
 
@@ -107,3 +108,18 @@ export const socialPlatformSchema = z.enum([
 
 /** Platforms OwBrand can actually publish to today. Keep honest and narrow. */
 export const supportedPublishPlatformSchema = z.enum(['facebook', 'instagram']);
+
+/**
+ * A URL a user supplied, validated for where it is allowed to point.
+ *
+ * Use this rather than `z.string().url()` for ANY URL that arrives from a
+ * client. `z.string().url()` accepts `http://169.254.169.254/` and
+ * `file:///etc/passwd` — it checks syntax, not destination. See
+ * `lib/security/safe-url.ts` for what is rejected and why.
+ */
+export const userSuppliedUrl = z
+  .string()
+  .url('Must be a valid URL.')
+  .refine((value) => isSafeUrl(value), {
+    message: 'Only public https:// URLs are accepted.',
+  });

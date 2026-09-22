@@ -22,6 +22,7 @@
  * approval workflow is the real control, and this makes it cheap to operate.
  */
 import { DEFAULT_PROHIBITED_CLAIMS, type BrandBrain } from '@/lib/brand/schema';
+import { fenceAndInspect, type InjectionSignal } from '@/lib/ai/injection';
 
 export interface ApprovedFacts {
   /** Free-form facts approved for a product or brand. */
@@ -122,7 +123,7 @@ export function buildFactualityInstructions(options: {
  * and fonts — so positioning, tone, audience and rules, the entire point of the
  * Brand Brain, never reached the model. This is the fix.
  */
-export function buildBrandContext(brain: BrandBrain): string {
+export function buildBrandContext(brain: BrandBrain): { text: string; signal: InjectionSignal } {
   const parts: string[] = [`BRAND: ${brain.name}`];
 
   if (brain.tagline) parts.push(`Tagline: ${brain.tagline}`);
@@ -170,7 +171,31 @@ export function buildBrandContext(brain: BrandBrain): string {
     parts.push(`Always: ${brain.guidelines.doRules.slice(0, 8).join('; ')}`);
   }
 
-  return parts.join('\n');
+  /*
+   * Everything above is user-written and is about to sit inside a system
+   * prompt. Writing rules, personas and example copy are editable by anyone
+   * with brand access, so on a shared workspace one member can leave a durable
+   * instruction that every other member's generations read — and the most
+   * valuable thing to instruct away is the factuality guard, which the terms
+   * and the AI-use page both promise.
+   *
+   * Fencing with a per-call nonce is what makes the boundary hold: content
+   * cannot close a delimiter it cannot predict. See lib/ai/injection.ts for
+   * what this does and, more importantly, what it does not.
+   */
+  const fenced = fenceAndInspect('brand_data', parts.join('\n'));
+
+  return { text: `${fenced.instruction}\n\n${fenced.text}`, signal: fenced.signal };
+}
+
+/**
+ * The fenced text alone, for callers that only need the string.
+ *
+ * Separate so that the signal cannot be dropped silently by a caller that
+ * merely wanted a string — taking it means choosing not to log it.
+ */
+export function buildBrandContextText(brain: BrandBrain): string {
+  return buildBrandContext(brain).text;
 }
 
 /* ------------------------------------------------------------------ *

@@ -134,11 +134,27 @@ export const POST = routeHandler('/api/ai/generate-content', async (request: Req
       ? ((await assertProductAccess(user.id, body.productId, { db })).product.name as string)
       : undefined;
 
+    /*
+     * The fenced brand context, and the signal that comes with it. Logged, not
+     * blocked: every pattern it matches has a legitimate form in brand copy,
+     * and refusing a generation because a brand description mentioned the word
+     * "instructions" fails for exactly the customers most likely to notice.
+     */
+    const brandContext = buildBrandContext(brain);
+    if (brandContext.signal.detected) {
+      logger.warn('ai:injection_signal', {
+        brandId: body.brandId,
+        route: 'generate-content',
+        // Indices, never the matched text — that text is customer content.
+        patterns: brandContext.signal.patterns,
+      });
+    }
+
     const result = await generateStructured({
       task: 'content_generation',
       system: contentSystemPrompt({
         kind: body.kind,
-        brandContext: buildBrandContext(brain),
+        brandContext: brandContext.text,
         factualityInstructions: buildFactualityInstructions({ brandBrain: brain, approvedFacts, productName }),
       }),
       prompt: `${contentUserPrompt(body)}\n\nReturn exactly ${body.variations} variation(s).`,

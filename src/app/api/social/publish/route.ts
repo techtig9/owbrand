@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { routeHandler, ApiError } from '@/lib/api/errors';
-import { parseJsonBody, uuidSchema, boundedText } from '@/lib/api/validate';
+import { parseJsonBody, uuidSchema, boundedText, userSuppliedUrl } from '@/lib/api/validate';
 import { requireUser, assertBrandAccess, assertContentAssetAccess } from '@/lib/auth/guards';
 import { enforceRateLimit } from '@/lib/security/rate-limit';
 import { createPublishIdempotencyKey } from '@/lib/publishing/idempotency';
@@ -35,7 +35,7 @@ const PublishRequest = z.object({
   /** The generated asset this came from, so the post links back to it. */
   contentAssetId: uuidSchema.optional(),
   caption: boundedText(0, 63206).optional(),
-  mediaUrls: z.array(z.string().url()).max(10).default([]),
+  mediaUrls: z.array(userSuppliedUrl).max(10).default([]),
   scheduledFor: z.string().datetime({ offset: true }).optional(),
 });
 

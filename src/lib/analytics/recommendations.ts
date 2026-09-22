@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { generateStructured } from '@/lib/ai/generate';
-import { buildBrandContext } from '@/lib/brand/guard';
+import { buildBrandContextText } from '@/lib/brand/guard';
 import { getCurrentBrandBrain } from '@/lib/brand/store';
 import { confidenceBand, type Signal } from './signals';
 import { isConfigured } from '@/lib/env';
@@ -142,7 +142,7 @@ export async function generateRecommendations(
 async function loadBrandContext(brandId: string, db: Db): Promise<string> {
   try {
     const brain = await getCurrentBrandBrain(brandId, db);
-    return brain ? buildBrandContext(brain) : '';
+    return brain ? buildBrandContextText(brain) : '';
   } catch (error) {
     // Brand voice is a nicety here; its absence must not stop a recommendation.
     logger.info('recommendations:brand_context_unavailable', {

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { routeHandler } from '@/lib/api/errors';
-import { parseJsonBody, uuidSchema } from '@/lib/api/validate';
+import { parseJsonBody, uuidSchema, userSuppliedUrl } from '@/lib/api/validate';
 import { requireUser, assertProductAccess } from '@/lib/auth/guards';
 import { enforceRateLimit } from '@/lib/security/rate-limit';
 import { buildProductPipeline } from '@/lib/product/product-pipeline';
@@ -17,7 +17,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
  */
 const Body = z.object({
   productId: uuidSchema,
-  sourceImages: z.array(z.string().url()).max(20).optional(),
+  sourceImages: z.array(userSuppliedUrl).max(20).optional(),
 });
 
 export const POST = routeHandler('/api/product/pipeline', async (request: Request) => {

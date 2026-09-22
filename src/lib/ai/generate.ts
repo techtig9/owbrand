@@ -20,8 +20,9 @@ import { ApiError } from '@/lib/api/errors';
 import { logger, newRequestId } from '@/lib/logger';
 import { generateWithFailover, type FailoverAttempt } from '@/lib/ai/resilience';
 import { parseJsonLoosely } from '@/lib/ai/json-repair';
-import { recordAIUsage, type AIUsageStatus } from '@/lib/ai/usage';
+import { recordAIUsage, estimateCost, type AIUsageStatus } from '@/lib/ai/usage';
 import { hasUsableProvider } from '@/lib/ai/registry';
+import { assertWithinBudget, recordSpend } from '@/lib/ai/budget';
 import {
   AIProviderError,
   type AIGenerateRequest,
@@ -59,6 +60,12 @@ export async function generateText(options: GenerateOptions): Promise<{
 }> {
   const requestId = newRequestId();
   assertProviderAvailable();
+  /*
+   * Before the provider is contacted, and inside the shared entry point
+   * rather than in each route — a spend control a caller can forget to apply
+   * is one that is not applied on the path that matters.
+   */
+  await assertWithinBudget({ userId: options.context?.userId });
 
   const request: AIGenerateRequest = {
     task: options.task,
@@ -120,6 +127,12 @@ export async function generateStructured<S extends ZodTypeAny>(
 ): Promise<AIStructuredResult<ZodOutput<S>>> {
   const requestId = newRequestId();
   assertProviderAvailable();
+  /*
+   * Before the provider is contacted, and inside the shared entry point
+   * rather than in each route — a spend control a caller can forget to apply
+   * is one that is not applied on the path that matters.
+   */
+  await assertWithinBudget({ userId: options.context?.userId });
 
   const maxRetries = options.maxValidationRetries ?? 1;
   const totalUsage: AITokenUsage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
@@ -287,6 +300,13 @@ async function record(
     errorCode: errorCode ?? null,
     creditsCharged: options.context?.creditsCharged ?? 0,
   });
+
+  /*
+   * Fold the cost into the budget cache straight away. Waiting for the cache
+   * window to expire before a spend is visible leaves a 15-second hole, and a
+   * runaway loop needs far less than 15 seconds.
+   */
+  recordSpend(estimateCost(provider, model, usage), options.context?.userId);
 }
 
 /**

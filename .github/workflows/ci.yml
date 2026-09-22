@@ -52,6 +52,12 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-role-key
           NEXT_PUBLIC_SITE_URL: https://ci.owbrand.invalid
 
+      - name: Scan the client bundle for secrets
+        # After the build, because it inspects .next/static. This is the check
+        # that catches a server variable inlined into a client chunk, which
+        # nothing in TypeScript, ESLint or the build output reports.
+        run: npm run scan:bundle
+
   database:
     name: Migrations and RLS
     runs-on: ubuntu-latest

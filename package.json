@@ -14,9 +14,10 @@
     "test:watch": "vitest",
     "test:ui": "vitest run tests/ui",
     "test:db": "bash supabase/test/run-db-tests.sh",
-    "verify": "npm run type-check && npm run lint && npm run check:contrast && npm run test && npm run build",
+    "verify": "npm run type-check && npm run lint && npm run check:contrast && npm run test && npm run build && npm run scan:bundle",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\""
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\"",
+    "scan:bundle": "node scripts/scan-bundle.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
