@@ -1,66 +1,50 @@
-import { Mic, ArrowRight, Monitor, Tablet, Smartphone } from 'lucide-react';
+import { isConfigured } from '@/lib/env';
+import { isDistributed } from '@/lib/security/rate-limit';
+import { DemoForm } from './DemoForm';
+import { DemoPreview } from './DemoPreview';
 
+/**
+ * "See it work" — and it now actually does, when it can.
+ *
+ * What this replaced was a static mockup with THREE DEAD CONTROLS: a "Generate"
+ * button with no handler, a microphone button with no handler, and three
+ * device tabs that switched nothing. All three looked interactive, sat under a
+ * heading promising a demonstration, and did nothing at all when clicked. That
+ * is the "never ship a button that does nothing" rule broken three times in
+ * one component, on the highest-traffic page on the site.
+ *
+ * Availability is resolved on the server, not guessed in the browser, so the
+ * page is never rendered with a control that cannot work:
+ *
+ *   - AI provider configured AND distributed rate limiting present → a real,
+ *     rate-limited, no-signup demo (`DemoForm`).
+ *   - Otherwise → a static preview that says plainly it is an example rather
+ *     than live output, and carries no interactive controls at all
+ *     (`DemoPreview`).
+ *
+ * The second branch is not a downgrade to hide behind. It is what honesty
+ * looks like when the deployment genuinely cannot run the demo: an illustration
+ * labelled as an illustration beats a button that lies.
+ */
 export function AIDemo() {
+  const live = isConfigured.ai() && isDistributed();
+
   return (
     <section id="ai-demo" className="py-24">
       <div className="mx-auto max-w-6xl px-6">
-        <div className="mx-auto max-w-xl text-center reveal">
+        <div className="reveal mx-auto max-w-xl text-center">
           <span className="section-eyebrow mx-auto">See it work</span>
-          <h2 className="mt-4 text-4xl font-bold tracking-tight sm:text-5xl">From a sentence to a site.</h2>
+          <h2 className="mt-4 text-4xl font-bold tracking-tight sm:text-5xl">
+            From a sentence to a brand sketch.
+          </h2>
           <p className="mt-4 text-content-secondary">
-            Type or speak a description. owbrand asks a few quick follow-ups, then builds.
+            {live
+              ? 'Describe a business in a line or two. No account, no card — this runs the real generator against a small schema.'
+              : 'Describe a business and owbrand sketches the start of its identity. The example below shows the shape of the output.'}
           </p>
         </div>
 
-        <div className="glass-panel reveal mx-auto mt-12 max-w-3xl overflow-hidden">
-          <div className="flex items-center gap-3 border-b border-line/70 px-5 py-4">
-            <div className="flex flex-1 items-center gap-3 rounded-full border border-line bg-surface px-4 py-2.5 text-sm text-content-secondary">
-              <span>&ldquo;Build a warm, editorial portfolio site for a ceramics studio&rdquo;</span>
-            </div>
-            <button type="button" className="rounded-full bg-surface-raised p-2.5 text-content-secondary" aria-label="Use voice input">
-              <Mic className="h-4 w-4" />
-            </button>
-            <button type="button" className="btn-accent px-4 py-2.5 text-xs">
-              Generate <ArrowRight className="h-3.5 w-3.5" />
-            </button>
-          </div>
-
-          <div className="grid gap-0 sm:grid-cols-[auto_1fr]">
-            <div className="flex flex-row gap-2 border-b border-line/70 p-4 sm:flex-col sm:border-b-0 sm:border-r">
-              {[
-                { icon: Monitor, label: 'Desktop', active: true },
-                { icon: Tablet, label: 'Tablet', active: false },
-                { icon: Smartphone, label: 'Mobile', active: false },
-              ].map(({ icon: Icon, label, active }) => (
-                <div
-                  key={label}
-                  className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium ${
-                    active ? 'bg-ink text-canvas' : 'text-content-secondary'
-                  }`}
-                >
-                  <Icon className="h-3.5 w-3.5" /> {label}
-                </div>
-              ))}
-            </div>
-
-            <div className="bg-surface-raised p-6">
-              <div className="mx-auto max-w-md rounded-xl border border-line bg-surface p-5 shadow-soft">
-                <div className="mb-4 flex items-center justify-between">
-                  <div className="h-3 w-16 rounded-full bg-ink/15" />
-                  <div className="flex gap-1.5">
-                    <div className="h-2 w-2 rounded-full bg-primary-subtle" />
-                    <div className="h-2 w-2 rounded-full bg-success" />
-                    <div className="h-2 w-2 rounded-full bg-ai-subtle" />
-                  </div>
-                </div>
-                <div className="mb-3 h-24 rounded-lg bg-primary-subtle" />
-                <div className="mb-2 h-2.5 w-3/4 rounded-full bg-ink/10" />
-                <div className="h-2.5 w-1/2 rounded-full bg-ink/10" />
-              </div>
-              <p className="mt-3 text-center text-xs text-content-tertiary">Live preview updates as sections generate</p>
-            </div>
-          </div>
-        </div>
+        <div className="mx-auto mt-12 max-w-2xl">{live ? <DemoForm /> : <DemoPreview />}</div>
       </div>
     </section>
   );

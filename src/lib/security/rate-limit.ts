@@ -53,6 +53,21 @@ export const RATE_LIMITS = {
   webhook: { limit: 300, windowSeconds: 60 },
   /** Ordinary authenticated reads and writes. */
   standard: { limit: 120, windowSeconds: 60 },
+  /**
+   * The unauthenticated landing-page demo.
+   *
+   * By far the tightest tier, and it has to be: this is the only route that
+   * spends provider money with no account, no credits and no way to attribute
+   * the cost to anyone. Two per minute and fifteen per hour per IP, so a
+   * visitor can try it and retry a typo, while a script pointed at it burns
+   * through its own budget long before it burns through ours.
+   *
+   * Per-process enforcement is not adequate here: without Upstash a
+   * serverless deployment gives an attacker one bucket per instance. The route
+   * checks `isDistributed()` and refuses rather than pretending to be limited.
+   */
+  publicDemo: { limit: 2, windowSeconds: 60 },
+  publicDemoHourly: { limit: 15, windowSeconds: 3600 },
 } as const satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;
