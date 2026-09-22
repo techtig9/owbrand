@@ -23,6 +23,33 @@ export interface ChangelogEntry {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: '2026-09-22',
+    version: 'Phase 7',
+    changes: [
+      {
+        kind: 'added' as const,
+        text: 'You can delete your account and export all of your data from Settings. Deletion is immediate and needs no request. Until now the privacy policy said this was available while the button was disabled — which made the policy wrong, not just the button.',
+      },
+      {
+        kind: 'added' as const,
+        text: 'A read-only API and signed webhooks. Create a key in Settings; the documentation is at /docs/api.',
+      },
+      {
+        kind: 'fixed' as const,
+        text: 'A post that failed because a platform was down is now told apart from one that cannot be published at all. Previously both showed as failed, and there was no way for us to retry only the ones that would now work.',
+      },
+      {
+        kind: 'security' as const,
+        text: 'Media URLs are checked before they are stored. A URL pointing at a private address is refused rather than accepted and failing hours later inside a publishing job.',
+      },
+      {
+        kind: 'security' as const,
+        text: "Brand information is now passed to the AI inside a boundary it cannot escape. On a shared workspace, one member could previously leave a writing rule that changed how every other member's generations behaved.",
+      },
+    ],
+  },
+
+  {
+    date: '2026-09-22',
     changes: [
       {
         kind: 'added',

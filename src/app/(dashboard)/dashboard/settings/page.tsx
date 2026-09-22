@@ -5,6 +5,7 @@ import { supabaseAdmin } from '@/lib/supabase/admin';
 import { accountHealth, type SocialAccountRow } from '@/lib/social/account-store';
 import { DangerZone } from '@/components/dashboard/DangerZone';
 import { ApiKeys } from '@/components/dashboard/ApiKeys';
+import { Webhooks } from '@/components/dashboard/Webhooks';
 
 export const dynamic = 'force-dynamic';
 
@@ -91,6 +92,8 @@ export default async function SettingsPage() {
       </section>
 
       <ApiKeys />
+
+      <Webhooks />
 
       {/*
         Deletion and export are real as of Phase 7. This section previously

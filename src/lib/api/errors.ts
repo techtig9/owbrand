@@ -11,6 +11,7 @@
  */
 import { NextResponse } from 'next/server';
 import { logger, newRequestId, type LogContext } from '@/lib/logger';
+import { reportError } from '@/lib/monitoring';
 
 export type ApiErrorCode =
   | 'unauthenticated'
@@ -170,6 +171,23 @@ export function toErrorResponse(error: unknown, context: LogContext = {}): NextR
   }
 
   logger.error('api_error:unhandled', error, { ...context, requestId });
+
+  /*
+   * Reported from HERE, the single place every unhandled route error passes
+   * through, rather than from individual catch blocks. A reporter that has to
+   * be called by each handler is one that gets forgotten in the handler that
+   * matters — and an unhandled 500 is exactly the class of error that is worth
+   * grouping and counting.
+   *
+   * ApiErrors above are NOT reported: a 400 or a 429 is the product working,
+   * and reporting them buries the real failures under the expected ones.
+   */
+  reportError({
+    error,
+    route: context.route,
+    requestId,
+    severity: 'error',
+  });
 
   return NextResponse.json<ApiErrorBody>(
     { error: DEFAULT_MESSAGE.internal, code: 'internal', requestId },

@@ -215,7 +215,78 @@ privilege-escalation path.
 
 ---
 
-## 5. Five-minute test checklist
+## 5. Phase 7 — backend, security and reliability
+
+### 5.1 New migrations (apply in order)
+
+| File                                         | What it does                                                                                                                  |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `20260922000016_phase7_account_deletion.sql` | Deletion function; `payments.user_id` cascade → `set null`; `approvals.reviewer_id` gains `on delete set null`; 14 FK indexes |
+| `20260922000017_phase7_dead_letter.sql`      | `dead_letter` status for `publishing_jobs`, `requeue_dead_letter_job()`                                                       |
+| `20260922000018_phase7_public_api.sql`       | `api_keys`, `webhook_endpoints`, `webhook_deliveries`, `claim_webhook_deliveries()`                                           |
+
+Two foreign keys change their ON DELETE behaviour. Nothing is dropped and no
+row is deleted. `20260922000017` reclassifies existing `failed` jobs to
+`dead_letter` **only** where they are at the attempt ceiling with no error
+code recorded — rows with an error code are left alone rather than guessed at.
+
+### 5.2 New environment variables (all optional, all with working defaults)
+
+| Variable                   | Default | What it does                                                                                                                                                 |
+| -------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `AI_KILL_SWITCH`           | `false` | Set to `true` to refuse every generation immediately. Needs no database and no deploy — it is the control that still works when the database is the problem. |
+| `AI_DAILY_BUDGET_USD`      | `25`    | Rolling 24-hour ceiling on estimated AI spend across the deployment. `0` disables the cap.                                                                   |
+| `AI_USER_DAILY_BUDGET_USD` | `5`     | The same, per user, so one account cannot consume the global ceiling.                                                                                        |
+
+**These default ON with real numbers.** A cap that waits for someone to
+configure it protects only the deployments whose operator had already thought
+about the problem — and a runaway loop happens at 3am on the one that nobody
+configured. Raise them deliberately.
+
+The budget **fails open** if `ai_usage_logs` cannot be read. Refusing every
+generation during a metrics outage would turn it into a full product outage.
+The kill switch is the control for the opposite preference.
+
+### 5.3 MANUAL ACTIONS FOR ME
+
+1. **Schedule the webhook worker.** `/api/cron/webhooks` needs a trigger the
+   same way `/api/cron/publish` does — every 1–5 minutes, with `CRON_SECRET`
+   in an `Authorization: Bearer` header. Nothing was added to `vercel.json`,
+   because a cron entry changes deploy behaviour and frequent crons need a
+   paid plan. Until it is scheduled, webhook deliveries queue and never send.
+2. **Decide the AI budgets.** The defaults above are conservative guesses.
+   `AI_DAILY_BUDGET_USD=25` will stop a busy day on a real customer base.
+3. **Set up a monitoring vendor.** `lib/monitoring.ts` is the seam, with the
+   vendor call left as a comment rather than a half-wired SDK that silently
+   does nothing. `isMonitoringConfigured()` returns `false` and `/api/ready`
+   reports it honestly.
+4. **Real provider token revocation on account deletion.** Deletion marks
+   social accounts revoked and removes the encrypted tokens, but does not call
+   each platform's revoke endpoint — that is per-platform work that does not
+   exist yet. Listed here rather than implied away in a comment.
+5. **DNS pinning for outbound fetches.** `assertSafeFetchTarget` resolves a
+   hostname and checks every returned address, which narrows the DNS-rebinding
+   window but does not close it. Closing it means pinning the socket to the
+   resolved address, which belongs in a fetch layer that does not exist yet.
+   The only code that fetches a customer-supplied URL today is the webhook
+   sender, and it re-validates at send time.
+
+### 5.4 What Phase 7 deliberately did NOT build
+
+- **Workspace roles and invitations.** The tables support multi-user
+  workspaces and `accessibleBrandIds` already resolves through them, but there
+  is no invitation flow and no role editor. It is in `ROADMAP.md` rather than
+  half-built, because it is a pricing decision first: seats change the plan
+  structure, and building the mechanics before deciding whether seats are
+  billed produces the wrong mechanics.
+- **Write endpoints on the public API.** They need an answer to what happens
+  when generated copy is blocked by the factuality guard with nobody watching.
+  Shipping one before answering that is how an API starts silently discarding
+  work.
+
+---
+
+## 6. Five-minute test checklist
 
 After deploying, in order. Each line is one thing that has actually broken here.
 
@@ -229,3 +300,6 @@ After deploying, in order. Each line is one thing that has actually broken here.
 8. **Response headers** carry `Content-Security-Policy` and `Strict-Transport-Security`, and the CSP's `connect-src` contains _your_ Supabase URL — not a placeholder from a stale build.
 9. **Two accounts in different brands cannot see each other's content.** Worth doing by hand once per deployment: CI tests the policies as written, not the policies as applied to the database you just pointed at.
 10. **Resize to 375px wide.** The sidebar becomes a drawer and the app is still usable. It previously just vanished.
+11. **Create an API key in Settings, then `curl -H "Authorization: Bearer owb_live_…" https://<domain>/api/v1/brands`** → your brands. The same call with one character changed → 401 with the _same_ message as a revoked key.
+12. **`curl https://<domain>/api/v1/openapi.json | jq .info.version`** → `1.0.0`, and the `servers[0].url` is your domain, not a placeholder.
+13. **Add a webhook endpoint pointing at `https://webhook.site/<id>`, publish a post.** The delivery appears in Settings within a minute of the cron firing, and the `X-OwBrand-Signature` verifies against the raw body. If it never arrives, the webhook cron is not scheduled — see 5.3.
