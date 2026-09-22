@@ -23,6 +23,25 @@ export interface ChangelogEntry {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: '2026-09-22',
+    version: 'Phase 9',
+    changes: [
+      {
+        kind: 'added' as const,
+        text: 'A help centre covering the things people actually get stuck on: why a post did not publish, what uses a credit, what the consistency check does and does not measure, and what connecting an account involves.',
+      },
+      {
+        kind: 'added' as const,
+        text: 'A contact form. If this deployment cannot send email, it shows an address instead of a form that would quietly drop your message.',
+      },
+      {
+        kind: 'added' as const,
+        text: 'You are now emailed when a scheduled post fails to publish, rather than finding out days later from the platform.',
+      },
+    ],
+  },
+
+  {
+    date: '2026-09-22',
     version: 'Phase 8',
     changes: [
       {

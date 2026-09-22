@@ -24,6 +24,14 @@ export interface ContentMeta {
   /** Reading time in minutes, computed rather than declared. */
   readingMinutes: number;
   tags: string[];
+  /**
+   * Grouping for the help centre. Empty for collections that do not use it
+   * (the blog), so one loader serves both rather than two near-identical ones
+   * drifting apart.
+   */
+  category: string;
+  /** Sort position within a category. Lower first; unset sorts last. */
+  order: number;
 }
 
 export interface ContentDocument extends ContentMeta {
@@ -58,6 +66,10 @@ function toMeta(slug: string, data: Record<string, unknown>, body: string): Cont
     draft: data.draft !== false,
     readingMinutes: readingMinutes(body),
     tags: Array.isArray(data.tags) ? data.tags.filter((t): t is string => typeof t === 'string') : [],
+    category: typeof data.category === 'string' ? data.category : '',
+    // 999 rather than 0 for an unset order: an article that forgot the field
+    // should fall to the end of its section, not jump to the top of it.
+    order: typeof data.order === 'number' ? data.order : 999,
   };
 }
 

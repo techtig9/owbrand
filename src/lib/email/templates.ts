@@ -217,3 +217,243 @@ function escapeAttr(value: string): string {
 function stripScheme(url: string): string {
   return url.replace(/^https?:\/\//, '');
 }
+
+/* ------------------------------------------------------------------ *
+ * Operational notifications (Phase 9)
+ *
+ * Each of these exists because something happened that the user cannot see
+ * from inside the product. That is the bar: a mail for something visible on
+ * the dashboard is noise, and noise is what makes people filter the mails that
+ * matter into a folder they never open.
+ * ------------------------------------------------------------------ */
+
+/**
+ * A scheduled post did not go out.
+ *
+ * The single most important transactional mail in this product. Everything
+ * else can wait for the next login; a post that silently failed to publish is
+ * a marketing campaign with a hole in it, and the user finds out days later
+ * from the platform rather than from us.
+ */
+export function publishFailed(options: {
+  brandName: string;
+  platform: string;
+  reason: string;
+  needsReconnect: boolean;
+  siteUrl: string;
+}): EmailContent {
+  const { brandName, platform, reason, needsReconnect, siteUrl } = options;
+  const destination = needsReconnect ? '/dashboard/connections' : '/dashboard/scheduler';
+
+  return {
+    subject: `A ${platform} post for ${brandName} did not publish`,
+    html: layout({
+      preheader: needsReconnect
+        ? `${platform} needs reconnecting before anything else can publish.`
+        : `One post failed. Here is what ${platform} said.`,
+      heading: 'A post did not publish',
+      siteUrl,
+      bodyHtml: `
+        <p style="margin:0 0 14px 0;">A scheduled <strong>${escapeHtml(platform)}</strong> post for <strong>${escapeHtml(brandName)}</strong> could not be published.</p>
+        <p style="margin:0 0 8px 0;font-weight:600;color:${BRAND.ink};">What the platform said:</p>
+        <p style="margin:0 0 20px 0;padding:12px 14px;background:${BRAND.canvas};border-radius:10px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;">${escapeHtml(reason)}</p>
+        ${
+          needsReconnect
+            ? `<p style="margin:0 0 20px 0;"><strong>This needs your attention.</strong> The connection to ${escapeHtml(platform)} has expired, so nothing will publish to it until you reconnect.</p>`
+            : `<p style="margin:0 0 20px 0;">We retried this automatically. It is in the queue where you can see the full history.</p>`
+        }
+        <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+          <td style="background:${BRAND.ink};border-radius:999px;">
+            <a href="${escapeAttr(siteUrl)}${destination}" style="display:inline-block;padding:12px 26px;font-size:14px;font-weight:600;color:#FFFFFF;text-decoration:none;">${needsReconnect ? 'Reconnect the account' : 'Open the queue'}</a>
+          </td>
+        </tr></table>`,
+    }),
+    text: [
+      'A post did not publish',
+      '',
+      `A scheduled ${platform} post for ${brandName} could not be published.`,
+      '',
+      `What the platform said: ${reason}`,
+      '',
+      needsReconnect
+        ? `The connection to ${platform} has expired. Nothing will publish to it until you reconnect: ${siteUrl}/dashboard/connections`
+        : `See the full history: ${siteUrl}/dashboard/scheduler`,
+    ].join('\n'),
+  };
+}
+
+/**
+ * Credits are nearly gone.
+ *
+ * Sent once at a threshold rather than repeatedly, and it names the number.
+ * "You are running low" with no figure is the kind of mail that trains people
+ * to ignore the sender.
+ */
+export function creditsLow(options: {
+  remaining: number;
+  plan: string;
+  siteUrl: string;
+}): EmailContent {
+  const { remaining, plan, siteUrl } = options;
+
+  return {
+    subject: `${remaining} credits left on your OwBrand ${plan} plan`,
+    html: layout({
+      preheader: `${remaining} credits remaining. Generations stop when they run out.`,
+      heading: 'Your credits are running low',
+      siteUrl,
+      bodyHtml: `
+        <p style="margin:0 0 14px 0;">You have <strong>${remaining}</strong> generation credit${remaining === 1 ? '' : 's'} left on the ${escapeHtml(plan)} plan.</p>
+        <p style="margin:0 0 20px 0;">When they run out, generations stop until your plan renews. Anything already scheduled still publishes — publishing does not use credits.</p>
+        <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+          <td style="background:${BRAND.ink};border-radius:999px;">
+            <a href="${escapeAttr(siteUrl)}/dashboard/billing" style="display:inline-block;padding:12px 26px;font-size:14px;font-weight:600;color:#FFFFFF;text-decoration:none;">See your usage</a>
+          </td>
+        </tr></table>`,
+      footerNote:
+        'Credits are only spent on successful generations. A generation that fails or times out is refunded automatically.',
+    }),
+    text: [
+      'Your credits are running low',
+      '',
+      `You have ${remaining} generation credit${remaining === 1 ? '' : 's'} left on the ${plan} plan.`,
+      '',
+      'When they run out, generations stop until your plan renews. Anything already scheduled still publishes.',
+      '',
+      `See your usage: ${siteUrl}/dashboard/billing`,
+    ].join('\n'),
+  };
+}
+
+/**
+ * A webhook endpoint was disabled after repeated failures.
+ *
+ * Without this mail, an integration goes quiet and the owner has no way to
+ * know — their server stopped receiving events and nothing told them why.
+ */
+export function webhookDisabled(options: {
+  url: string;
+  failures: number;
+  siteUrl: string;
+}): EmailContent {
+  const { url, failures, siteUrl } = options;
+  // Host only. The full path can contain a token, and an email is stored
+  // wherever the recipient's mail provider stores things.
+  const host = (() => {
+    try {
+      return new URL(url).host;
+    } catch {
+      return 'your endpoint';
+    }
+  })();
+
+  return {
+    subject: 'A webhook endpoint was disabled',
+    html: layout({
+      preheader: `${host} failed ${failures} times in a row and is no longer receiving events.`,
+      heading: 'A webhook endpoint was disabled',
+      siteUrl,
+      bodyHtml: `
+        <p style="margin:0 0 14px 0;">Deliveries to <strong>${escapeHtml(host)}</strong> failed ${failures} times in a row, so we stopped sending to it.</p>
+        <p style="margin:0 0 20px 0;">Retrying a dead address on every event indefinitely is a slow flood aimed at whoever owns it now, so we disable rather than keep going. Fix the endpoint and re-enable it and new events resume — the ones that failed are not replayed.</p>
+        <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+          <td style="background:${BRAND.ink};border-radius:999px;">
+            <a href="${escapeAttr(siteUrl)}/dashboard/settings" style="display:inline-block;padding:12px 26px;font-size:14px;font-weight:600;color:#FFFFFF;text-decoration:none;">Open webhook settings</a>
+          </td>
+        </tr></table>`,
+    }),
+    text: [
+      'A webhook endpoint was disabled',
+      '',
+      `Deliveries to ${host} failed ${failures} times in a row, so we stopped sending to it.`,
+      '',
+      'Fix the endpoint and re-enable it and new events resume. The failed ones are not replayed.',
+      '',
+      `${siteUrl}/dashboard/settings`,
+    ].join('\n'),
+  };
+}
+
+/**
+ * Confirmation that an account was deleted.
+ *
+ * Sent to an address we are about to stop being able to reach, which is the
+ * point: it is the user's receipt. It states plainly what was kept, because a
+ * deletion confirmation that implies everything is gone while billing records
+ * are retained is a misleading statement about a data-subject right.
+ */
+export function accountDeleted(options: {
+  paymentsRetained: number;
+  siteUrl: string;
+}): EmailContent {
+  const { paymentsRetained, siteUrl } = options;
+
+  return {
+    subject: 'Your OwBrand account has been deleted',
+    html: layout({
+      preheader: 'Confirmation of what was removed and what was kept.',
+      heading: 'Your account has been deleted',
+      siteUrl,
+      bodyHtml: `
+        <p style="margin:0 0 14px 0;">Your account and its data have been removed: brands, products, generated content, scheduled posts, connected accounts and analytics.</p>
+        <p style="margin:0 0 8px 0;font-weight:600;color:${BRAND.ink};">What was kept, and why:</p>
+        <ul style="margin:0 0 20px 0;padding-left:20px;">
+          <li style="margin-bottom:6px;">${paymentsRetained} billing record${paymentsRetained === 1 ? '' : 's'}, with your identity removed. Required for tax and accounting.</li>
+          <li style="margin-bottom:6px;">A log entry recording that the deletion happened, so it can be evidenced if ever disputed.</li>
+        </ul>
+        <p style="margin:0 0 6px 0;">Nothing else remains, and this cannot be undone. Signing up again starts from nothing.</p>`,
+      footerNote: 'This is the last email we will send to this address.',
+    }),
+    text: [
+      'Your account has been deleted',
+      '',
+      'Removed: brands, products, generated content, scheduled posts, connected accounts and analytics.',
+      '',
+      'Kept:',
+      `- ${paymentsRetained} billing record${paymentsRetained === 1 ? '' : 's'}, with your identity removed. Required for tax and accounting.`,
+      '- A log entry recording that the deletion happened.',
+      '',
+      'Nothing else remains, and this cannot be undone.',
+      '',
+      siteUrl,
+    ].join('\n'),
+  };
+}
+
+/**
+ * A message from the public contact form, sent to the operator.
+ *
+ * Every field is escaped. This is the only template whose content comes from
+ * an unauthenticated stranger, which makes it the only one where an HTML
+ * injection would be trivially reachable — and the recipient is us.
+ */
+export function contactMessage(options: {
+  fromName: string;
+  fromEmail: string;
+  topic: string;
+  message: string;
+  siteUrl: string;
+}): EmailContent {
+  const { fromName, fromEmail, topic, message, siteUrl } = options;
+
+  return {
+    subject: `[${topic}] Contact form: ${fromName}`,
+    html: layout({
+      preheader: `${fromName} <${fromEmail}> — ${topic}`,
+      heading: 'New contact message',
+      siteUrl,
+      bodyHtml: `
+        <p style="margin:0 0 6px 0;"><strong>From:</strong> ${escapeHtml(fromName)} &lt;${escapeHtml(fromEmail)}&gt;</p>
+        <p style="margin:0 0 14px 0;"><strong>Topic:</strong> ${escapeHtml(topic)}</p>
+        <div style="margin:0 0 20px 0;padding:14px;background:${BRAND.canvas};border-radius:10px;white-space:pre-wrap;">${escapeHtml(message)}</div>`,
+    }),
+    text: [
+      'New contact message',
+      '',
+      `From: ${fromName} <${fromEmail}>`,
+      `Topic: ${topic}`,
+      '',
+      message,
+    ].join('\n'),
+  };
+}

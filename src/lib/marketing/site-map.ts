@@ -38,6 +38,8 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   { path: '/changelog', priority: 0.6, changeFrequency: 'weekly', index: true },
   { path: '/blog', priority: 0.6, changeFrequency: 'weekly', index: true },
   { path: '/docs/api', priority: 0.5, changeFrequency: 'monthly', index: true },
+  { path: '/help', priority: 0.7, changeFrequency: 'monthly', index: true },
+  { path: '/contact', priority: 0.4, changeFrequency: 'yearly', index: true },
 
   // Legal pages are linked from the footer and must stay in this list so the
   // footer's consistency check can see them — but they are unreviewed drafts,

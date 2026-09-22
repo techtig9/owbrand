@@ -1,0 +1,46 @@
+---
+title: Connecting a social account
+description: What connecting does, what it can and cannot do, and why it might be unavailable.
+date: '2026-09-22'
+draft: false
+tags: ['publishing', 'setup']
+category: 'Publishing'
+order: 2
+---
+
+## What connecting actually does
+
+You are redirected to the platform, you approve specific permissions, and the
+platform hands us an access token. We encrypt that token before storing it, and
+use it only to publish what you schedule and to read metrics for your own
+posts.
+
+We never post anything you did not schedule.
+
+## Why the button might be unavailable
+
+Publishing to Instagram and Facebook needs a Meta app with approved
+permissions. If this deployment does not have one, the connection is shown as
+unavailable rather than failing halfway through the flow — a button that starts
+an OAuth redirect and dies at the callback is worse than one that says it is
+not ready.
+
+## Why your account may say "needs reconnect"
+
+Access tokens expire. When one does, we mark the account and stop attempting to
+publish to it, because every attempt would fail identically and fill your queue
+with noise.
+
+Reconnecting takes a few seconds and does not affect anything already published.
+
+## If the operator rotates the encryption key
+
+Every stored token becomes unreadable and all accounts report that they need
+reconnecting. This is intended behaviour, not a fault: the alternative is an
+encryption key that can never be rotated.
+
+## What we do not store
+
+Your platform password, obviously — we never see it. We also do not include
+access tokens in your data export, even though they belong to you, because a
+plaintext credential in a downloaded file is a worse outcome than omitting it.

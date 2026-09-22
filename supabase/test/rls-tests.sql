@@ -1800,6 +1800,151 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
+-- Admin credit grants (Phase 9)
+-- ---------------------------------------------------------------------------
+-- This function moves money-equivalent value, so every refusal is asserted.
+-- The one that matters most is the first: it re-checks the caller's admin role
+-- itself rather than trusting the route, because a privileged function that
+-- trusts its caller is one route bug away from being a self-service credit
+-- machine.
+do $$
+declare
+  v_admin uuid;
+  v_user uuid;
+  v_result record;
+  v_before integer;
+  v_ledger integer;
+  v_audit integer;
+begin
+  select id into v_admin from public.users where role = 'admin' limit 1;
+  select id into v_user from public.users where role <> 'admin' limit 1;
+
+  -- Ensure the target has a subscription to grant against.
+  insert into public.subscriptions (user_id, plan, status, credits_remaining)
+  values (v_user, 'free', 'active', 10)
+  on conflict (user_id) do update set credits_remaining = 10, status = 'active';
+
+  select credits_remaining into v_before from public.subscriptions where user_id = v_user;
+
+  -- A non-admin caller must be refused.
+  select * into v_result from public.grant_credits(v_user, v_user, 50, 'self service');
+  insert into _results values
+    ('grants: refuses a caller who is not an admin', not coalesce(v_result.granted, true),
+     coalesce(v_result.detail, 'unexpectedly granted'));
+
+  select credits_remaining into v_ledger from public.subscriptions where user_id = v_user;
+  insert into _results values
+    ('grants: a refused grant changes no balance', v_ledger = v_before,
+     format('%s -> %s', v_before, v_ledger));
+
+  -- A grant with no reason must be refused: it is the one thing an audit
+  -- cannot reconstruct afterwards.
+  select * into v_result from public.grant_credits(v_admin, v_user, 50, '  ');
+  insert into _results values
+    ('grants: requires a reason', not coalesce(v_result.granted, true),
+     coalesce(v_result.detail, 'unexpectedly granted'));
+
+  -- Bounded in both directions. A typo of 100000 is easier to make than notice.
+  select * into v_result from public.grant_credits(v_admin, v_user, 100000, 'oops');
+  insert into _results values
+    ('grants: refuses an absurd amount', not coalesce(v_result.granted, true),
+     coalesce(v_result.detail, 'unexpectedly granted'));
+
+  select * into v_result from public.grant_credits(v_admin, v_user, 0, 'nothing');
+  insert into _results values
+    ('grants: refuses a zero grant', not coalesce(v_result.granted, true),
+     coalesce(v_result.detail, 'unexpectedly granted'));
+
+  -- The happy path.
+  select * into v_result from public.grant_credits(v_admin, v_user, 25, 'incident 2026-09-22');
+  insert into _results values
+    ('grants: a valid grant succeeds', coalesce(v_result.granted, false),
+     coalesce(v_result.detail, 'no detail')),
+    ('grants: the balance increases by the amount', v_result.new_balance = v_before + 25,
+     format('%s -> %s', v_before, v_result.new_balance));
+
+  select count(*) into v_ledger from public.credit_ledger
+   where user_id = v_user and action = 'admin_grant' and reason = 'incident 2026-09-22';
+  insert into _results values
+    ('grants: a ledger entry records the grant', v_ledger = 1, format('%s rows', v_ledger));
+
+  select count(*) into v_audit from public.audit_logs
+   where action = 'credits.granted' and entity_id = v_user::text and actor_id = v_admin;
+  insert into _results values
+    ('grants: an audit row names the admin who granted', v_audit = 1, format('%s rows', v_audit));
+
+  -- A negative grant (clawback) is allowed and must not go below zero.
+  select * into v_result from public.grant_credits(v_admin, v_user, -100000, 'clawback');
+  insert into _results values
+    ('grants: refuses an absurd clawback', not coalesce(v_result.granted, true),
+     coalesce(v_result.detail, 'unexpectedly granted'));
+
+  select * into v_result from public.grant_credits(v_admin, v_user, -1000, 'clawback');
+  insert into _results values
+    ('grants: a clawback floors at zero rather than going negative',
+     coalesce(v_result.new_balance, -1) = 0, format('%s', coalesce(v_result.new_balance, -1)));
+
+  -- Granting to someone with no subscription reports failure rather than raising.
+  select * into v_result from public.grant_credits(v_admin, gen_random_uuid(), 10, 'ghost');
+  insert into _results values
+    ('grants: granting to an absent user reports failure rather than raising',
+     not coalesce(v_result.granted, true), coalesce(v_result.detail, 'no detail'));
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- Feature flags (Phase 9)
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  v_seeded integer;
+  v_rls boolean;
+  v_written integer;
+begin
+  select count(*) into v_seeded from public.feature_flags;
+  insert into _results values
+    ('flags: the flags the product checks are seeded', v_seeded >= 6, format('%s flags', v_seeded));
+
+  select relrowsecurity into v_rls from pg_class where relname = 'feature_flags';
+  insert into _results values
+    ('flags: RLS is enabled', coalesce(v_rls, false), format('%s', v_rls));
+
+  /*
+   * Tested as BEHAVIOUR, not as a privilege bit.
+   *
+   * The migration revokes UPDATE from `authenticated`, and that revoke does
+   * not survive: Supabase re-applies a blanket `grant ... on all tables ... to
+   * authenticated`, which this harness replays. The same finding is recorded
+   * in migration 20260922000014 and in FIXES.md.
+   *
+   * What IS durable is RLS. The policy on this table covers SELECT only, so
+   * with row-level security enabled and no write policy, an UPDATE by a tenant
+   * affects zero rows whatever the grants say. Asserting the privilege bit
+   * would encode a guarantee the platform does not provide; asserting the
+   * outcome tests the control that actually holds.
+   */
+  set local role authenticated;
+  begin
+    update public.feature_flags set enabled = not enabled where key = 'public_api';
+    get diagnostics v_written = row_count;
+  exception when insufficient_privilege then
+    -- Also an acceptable outcome: refused outright rather than silently
+    -- affecting nothing.
+    v_written := 0;
+  end;
+  reset role;
+
+  insert into _results values
+    ('flags: a tenant UPDATE changes no rows', v_written = 0, format('%s rows written', v_written));
+
+  -- Positive control: the service role CAN write, so the assertion above is
+  -- measuring RLS rather than a broken table.
+  update public.feature_flags set description = description where key = 'public_api';
+  get diagnostics v_written = row_count;
+  insert into _results values
+    ('flags: the service role can still write', v_written = 1, format('%s rows written', v_written));
+end $$;
+
+-- ---------------------------------------------------------------------------
 -- Report
 -- ---------------------------------------------------------------------------
 \set QUIET off

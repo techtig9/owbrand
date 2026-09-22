@@ -28,6 +28,8 @@ const COMPANY_LINKS = [
   { href: '/changelog', label: 'Changelog' },
   { href: '/blog', label: 'Blog' },
   { href: '/docs/api', label: 'API' },
+  { href: '/help', label: 'Help' },
+  { href: '/contact', label: 'Contact' },
 ];
 
 const LEGAL_LINKS = [

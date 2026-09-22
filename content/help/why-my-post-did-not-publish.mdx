@@ -1,0 +1,58 @@
+---
+title: Why a post did not publish
+description: The four reasons a scheduled post fails, and what each one needs from you.
+date: '2026-09-22'
+draft: false
+tags: ['publishing', 'troubleshooting']
+category: 'Publishing'
+order: 1
+---
+
+A post in the queue shows **Failed**. There are four causes, and they need
+different things from you.
+
+## 1. The connection expired
+
+The most common one. Meta access tokens expire, and when yours does, nothing
+publishes to that account until you reconnect.
+
+**How to tell:** the Connections page shows the account as *Needs reconnect*.
+
+**What to do:** reconnect it. Posts that failed for this reason are not retried
+automatically once the token is gone — requeue them from the queue after
+reconnecting.
+
+## 2. The platform rejected the media
+
+Instagram is strict about aspect ratios, video length and file size, and it
+rejects rather than adjusts. The queue shows the platform's own message,
+verbatim, because ours would be a worse version of it.
+
+**What to do:** fix the media and schedule again. This is a permanent failure —
+retrying the same file produces the same rejection, so we do not retry it.
+
+## 3. The platform was down
+
+Temporary. We retry five times with increasing gaps, and most of these succeed
+on the second or third attempt without you seeing anything.
+
+If all five fail, the post moves to a state where we can replay it once the
+platform recovers. You do not need to do anything; if it stays failed for more
+than a day, contact us.
+
+## 4. Nothing is running the publisher
+
+The one that catches self-hosted deployments. Publishing needs a scheduled job
+calling `/api/cron/publish`. Without it, posts sit in the queue looking
+scheduled and nothing ever sends them.
+
+**How to tell:** the Scheduler page shows a banner saying publishing is paused.
+If you see that banner, none of the above applies — nothing is failing, nothing
+is running.
+
+## Why we do not just retry everything
+
+Retrying a post the platform permanently rejected produces the identical
+rejection, burns the retry budget, and hides the real failure behind four
+duplicates. So we separate "the platform was broken" from "this cannot be
+published", and only replay the first.

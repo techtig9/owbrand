@@ -68,6 +68,15 @@ export const RATE_LIMITS = {
    */
   publicDemo: { limit: 2, windowSeconds: 60 },
   publicDemoHourly: { limit: 15, windowSeconds: 3600 },
+
+  /*
+   * The contact form. Two windows, because one is trivially sidestepped: an
+   * hourly limit stops a burst and a daily one stops a patient script that
+   * waits between messages. Three an hour is generous for a human who sends a
+   * follow-up after a typo, and ruinous for a spam run.
+   */
+  contactHourly: { limit: 3, windowSeconds: 3600 },
+  contactDaily: { limit: 10, windowSeconds: 86_400 },
 } as const satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;
