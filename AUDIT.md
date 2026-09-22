@@ -21,59 +21,58 @@ environment variables: `/` renders 200, `/dashboard` refuses to
 
 ## P1 — core feature or security
 
-| # | Issue | File | Status |
-|---|---|---|---|
-| 1 | **Two tables have RLS disabled and no policies.** `media_jobs` and `product_asset_versions` are orphans from a legacy migration, superseded by `generation_jobs`/`asset_versions` and referenced by no application code. But RLS off + Supabase's default grants means any authenticated user can read and write them through PostgREST, and their FKs to `brands`/`products` turn them into an existence oracle: insert a guessed `brand_id` and a FK violation versus success reveals whether that brand exists. Empty today, an instant leak the moment anything writes to them. | `supabase/migrations/20260816_phase2.sql:2,19` | **fixed** |
-| 2 | **Non-null assertion on the billing webhook secret.** `paddle.webhooks.unmarshal(rawBody, process.env.PADDLE_WEBHOOK_SECRET!, sig)`. Explicitly forbidden by the Phase 2 rules, and it is the signature verifier: with the variable unset this throws inside the handler instead of refusing the request with a stated reason. | `src/lib/paddle.ts:32` | **fixed** |
-| 3 | **Paddle config bypasses the validated env module.** `new Paddle(process.env.PADDLE_API_KEY)` and `priceIdFor()` read `process.env` directly and throw a plain `Error`, so a missing price ID surfaces as a generic 500 rather than `not_configured`. Same defect class as the Supabase factories fixed in `a4df084` — the env module exists to be the only path to configuration. | `src/lib/paddle.ts:15,24` | **fixed** |
+| #   | Issue                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | File                                           | Status    |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | --------- |
+| 1   | **Two tables have RLS disabled and no policies.** `media_jobs` and `product_asset_versions` are orphans from a legacy migration, superseded by `generation_jobs`/`asset_versions` and referenced by no application code. But RLS off + Supabase's default grants means any authenticated user can read and write them through PostgREST, and their FKs to `brands`/`products` turn them into an existence oracle: insert a guessed `brand_id` and a FK violation versus success reveals whether that brand exists. Empty today, an instant leak the moment anything writes to them. | `supabase/migrations/20260816_phase2.sql:2,19` | **fixed** |
+| 2   | **Non-null assertion on the billing webhook secret.** `paddle.webhooks.unmarshal(rawBody, process.env.PADDLE_WEBHOOK_SECRET!, sig)`. Explicitly forbidden by the Phase 2 rules, and it is the signature verifier: with the variable unset this throws inside the handler instead of refusing the request with a stated reason.                                                                                                                                                                                                                                                      | `src/lib/paddle.ts:32`                         | **fixed** |
+| 3   | **Paddle config bypasses the validated env module.** `new Paddle(process.env.PADDLE_API_KEY)` and `priceIdFor()` read `process.env` directly and throw a plain `Error`, so a missing price ID surfaces as a generic 500 rather than `not_configured`. Same defect class as the Supabase factories fixed in `a4df084` — the env module exists to be the only path to configuration.                                                                                                                                                                                                  | `src/lib/paddle.ts:15,24`                      | **fixed** |
 
 ---
 
 ## P2 — buttons, UX, configuration
 
-| # | Issue | File | Status |
-|---|---|---|---|
-| 4 | **No shared UI primitive library.** `src/components/ui/` does not exist; components are scattered per feature. Missing: Tabs, Modal, Drawer, Tooltip, Table, Avatar, Progress, Select, Textarea. Consequences are already visible: 11 files hand-roll `animate-pulse` skeletons at different heights, so the layout jumps differently on every page, and two files define their own `Stat` card. | `src/components/*` | **fixed** |
-| 5 | **Four SECURITY DEFINER functions keep the default PUBLIC EXECUTE.** `derive_product_workspace`, `sync_campaign_aliases`, `handle_new_user`, `set_updated_at`. The dangerous ones (`reserve_credits`, `complete_publishing_job`, the `upsert_*` family) are correctly revoked; these four were missed. The last two are trigger functions, so exposure is low, but a definer function callable by `anon` is exactly what the hardening rule names. | `supabase/migrations/*.sql` | **fixed** |
-| 6 | **Three unused dependencies ship in the bundle graph.** `@monaco-editor/react`, `framer-motion`, `clsx` — nothing imports any of them. The first two are large. | `package.json` | **fixed** |
-| 7 | **`.env.example` is out of sync.** Missing `AI_PROVIDER_ORDER` and `ANTHROPIC_MODEL`, which the code reads. Documents `VERCEL_API_TOKEN` and `NETLIFY_API_TOKEN`, which nothing reads now that both deployment adapters return 503. | `.env.example` | **fixed** |
-| 8 | **`.gitignore` missing `dist` and `*.zip`.** Phase 5 produces a zip in the parent directory, but the pattern belongs there regardless. | `.gitignore` | **fixed** |
-| 9 | **`metadataBase` duplicates the localhost fallback** instead of reading `publicEnv.siteUrl`, which already encodes it. A second literal is a second thing to get wrong. | `src/app/layout.tsx:44` | **fixed** |
-| 10 | **Three `console.*` calls bypass the structured logger**, and one of them writes a user's email address into platform logs — PII in a sink with different retention and access rules from the app's own. | `src/app/api/admin/override-subscription/route.ts:53`, `src/app/api/billing/manage-subscription/route.ts:37`, `src/app/error.tsx:18` | **fixed** |
+| #   | Issue                                                                                                                                                                                                                                                                                                                                                                                                                                              | File                                                                                                                                 | Status    |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | --------- |
+| 4   | **No shared UI primitive library.** `src/components/ui/` does not exist; components are scattered per feature. Missing: Tabs, Modal, Drawer, Tooltip, Table, Avatar, Progress, Select, Textarea. Consequences are already visible: 11 files hand-roll `animate-pulse` skeletons at different heights, so the layout jumps differently on every page, and two files define their own `Stat` card.                                                   | `src/components/*`                                                                                                                   | **fixed** |
+| 5   | **Four SECURITY DEFINER functions keep the default PUBLIC EXECUTE.** `derive_product_workspace`, `sync_campaign_aliases`, `handle_new_user`, `set_updated_at`. The dangerous ones (`reserve_credits`, `complete_publishing_job`, the `upsert_*` family) are correctly revoked; these four were missed. The last two are trigger functions, so exposure is low, but a definer function callable by `anon` is exactly what the hardening rule names. | `supabase/migrations/*.sql`                                                                                                          | **fixed** |
+| 6   | **Three unused dependencies ship in the bundle graph.** `@monaco-editor/react`, `framer-motion`, `clsx` — nothing imports any of them. The first two are large.                                                                                                                                                                                                                                                                                    | `package.json`                                                                                                                       | **fixed** |
+| 7   | **`.env.example` is out of sync.** Missing `AI_PROVIDER_ORDER` and `ANTHROPIC_MODEL`, which the code reads. Documents `VERCEL_API_TOKEN` and `NETLIFY_API_TOKEN`, which nothing reads now that both deployment adapters return 503.                                                                                                                                                                                                                | `.env.example`                                                                                                                       | **fixed** |
+| 8   | **`.gitignore` missing `dist` and `*.zip`.** Phase 5 produces a zip in the parent directory, but the pattern belongs there regardless.                                                                                                                                                                                                                                                                                                             | `.gitignore`                                                                                                                         | **fixed** |
+| 9   | **`metadataBase` duplicates the localhost fallback** instead of reading `publicEnv.siteUrl`, which already encodes it. A second literal is a second thing to get wrong.                                                                                                                                                                                                                                                                            | `src/app/layout.tsx:44`                                                                                                              | **fixed** |
+| 10  | **Three `console.*` calls bypass the structured logger**, and one of them writes a user's email address into platform logs — PII in a sink with different retention and access rules from the app's own.                                                                                                                                                                                                                                           | `src/app/api/admin/override-subscription/route.ts:53`, `src/app/api/billing/manage-subscription/route.ts:37`, `src/app/error.tsx:18` | **fixed** |
 
 ---
 
 ## P3 — polish and later-phase scope
 
-| # | Issue | Scope |
-|---|---|---|
-| 11 | No `sitemap.ts`, `robots.ts` or OG image. | Phase 6 |
-| 12 | No legal pages, help centre, contact form, changelog or blog. | Phase 6 / 9 |
-| 13 | `export-zip` streams a valid archive but omits generated section source. | tracked, needs a persistence target |
-| 14 | Vercel/Netlify deploy adapters unbuilt — both return 503 with a stated reason, which is honest, not broken. | ROADMAP |
+| #   | Issue                                                                                                       | Scope                               |
+| --- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| 11  | No `sitemap.ts`, `robots.ts` or OG image.                                                                   | Phase 6                             |
+| 12  | No legal pages, help centre, contact form, changelog or blog.                                               | Phase 6 / 9                         |
+| 13  | `export-zip` streams a valid archive but omits generated section source.                                    | tracked, needs a persistence target |
+| 14  | Vercel/Netlify deploy adapters unbuilt — both return 503 with a stated reason, which is honest, not broken. | ROADMAP                             |
 
 ---
 
 ## Design direction — a conflict, stated rather than resolved silently
 
-The fix-all brief assigns owbrand *"editorial; serif display, cream/ink with one
-bold accent, oversized type."* The repository currently implements the opposite:
+The fix-all brief assigns owbrand _"editorial; serif display, cream/ink with one
+bold accent, oversized type."_ The repository currently implements the opposite:
 a deep-indigo primary on near-white surfaces with a designed dark theme, built
 from `OWBRAND_FRONTEND_DESIGN_SPEC` §2/§3 and verified by 68 computed WCAG 2.2
 AA contrast pairs plus axe on five pages in both themes.
 
-The cream/coral editorial palette is what was there *before*; replacing it was
+The cream/coral editorial palette is what was there _before_; replacing it was
 the whole of the previous Phase 5.
 
 **Decision: keep the indigo token system.** Reverting would discard a verified,
 gated palette to satisfy a one-line direction, and would delete the dark theme
 the other spec mandates — the contrast gate in `npm run verify` would have to be
-deleted with it. What the editorial direction asks for that does *not* conflict
+deleted with it. What the editorial direction asks for that does _not_ conflict
 is being adopted: the display face stays a distinct expressive face on marketing
 surfaces only, with oversized fluid headings, while the application keeps compact
 type. If the editorial palette is genuinely wanted instead, say so — it is a
 token-file change plus a re-run of the contrast gate, not a rebuild.
-
 
 ---
 
@@ -116,7 +115,6 @@ Two further test-design notes:
 
 Database suite: **137/137 against real PostgreSQL 16.**
 
-
 ---
 
 ## Phase 3 — the primitive library
@@ -136,7 +134,7 @@ rewriting them would have been a visual change dressed as a refactor.
 Three API decisions that the type checker then enforced:
 
 - **`EmptyState.action` is required.** This immediately failed to compile on
-  `brand-kit`, which rendered *"Generate a brand in the AI Generator first"*
+  `brand-kit`, which rendered _"Generate a brand in the AI Generator first"_
   with no link — an instruction naming a destination the reader then had to go
   and find. It now has a button. A required prop found that; a lint rule could
   not have.
@@ -175,7 +173,7 @@ build pass.
   and several contradict the shipped code — `PHASE_2_SETUP.md` routes every AI
   call through a `lib/gemini.ts` that no longer exists, and
   `PHASE_1_DESIGN_SYSTEM.md` specifies the palette the indigo system replaced.
-  Archived rather than deleted: they record *why* decisions were taken, which a
+  Archived rather than deleted: they record _why_ decisions were taken, which a
   diff cannot show. The root now holds `README.md` and `AUDIT.md`.
 - **`docs/MIGRATIONS.md`** added: what each of the seven migrations does, the
   two post-apply checks worth running as SQL, and the Supabase grant caveat.
@@ -194,3 +192,43 @@ build pass.
 `npm ci` from the committed lockfile succeeds. No build output, archives or
 secrets are tracked. Git history contains no secrets — the only matches are
 test fixtures asserting that fake secrets do **not** leak.
+
+---
+
+## Phase 5 — fresh-clone verification, and what it caught
+
+Cloned the branch head into an empty directory with **no environment variables
+set at all**, then ran the whole gauntlet:
+
+| Step | Result |
+|---|---|
+| `npm ci` from the committed lockfile | pass |
+| `tsc --noEmit` | pass |
+| `next lint` | pass, zero warnings |
+| `check:contrast` | pass |
+| `npm test` | **533 passed, 33 files** |
+| `next build` with no env vars | pass |
+| Browser suite against that build | **163/163, zero failures** |
+
+**The browser run against the fresh clone found a real information
+disclosure.** All three cron routes answered any anonymous request with
+`503 {"error":"The publishing worker trigger is not configured. Set
+CRON_SECRET.","code":"not_configured"}` — confirming the path, naming the
+feature, and naming the missing variable. It also contradicted the same files'
+own stated policy, which explains a few lines lower that a wrong secret gets
+404 rather than 401 so a caller cannot learn a publishing trigger lives there.
+
+Fixed to 404, byte-identical to a wrong secret, with 12 unit tests pinning it.
+
+**Why four phases of green runs missed it:** the leak is invisible in the happy
+path. With `CRON_SECRET` set, every assertion passes either way — and the
+earlier "165/165" run was green because *that* environment had the secret. A
+suite that passes because the environment happened to be configured is not
+evidence about the unconfigured case, which is the case every first deployment
+is in. Running the suite against a clone with nothing set is what surfaced it.
+
+Release archive: `owbrand-clean.zip`, 736 KB, 534 entries, containing no
+`node_modules`, no `.next`, and no `.env` other than `.env.example`.
+
+Written this phase: `FIXES.md` (what changed, what did not and why, design
+decisions, manual actions, a five-minute checklist) and `ROADMAP.md`.
