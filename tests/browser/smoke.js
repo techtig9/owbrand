@@ -211,7 +211,13 @@ function record(name, passed, detail = '') {
     Boolean(
       authorizeUrl &&
         /code_challenge=/.test(authorizeUrl) &&
-        /redirect_to=http%3A%2F%2Flocalhost%3A3100%2Fauth%2Fcallback/.test(authorizeUrl),
+        // Derived from BASE, not hard-coded. This was pinned to port 3100 and
+        // failed the moment the suite ran on another port — reporting a PKCE
+        // problem when the only difference was the port number. A test that
+        // fails for a reason unrelated to its subject trains you to ignore it.
+        new RegExp(`redirect_to=${encodeURIComponent(`${BASE}/auth/callback`).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i').test(
+          authorizeUrl,
+        ),
     ),
     authorizeUrl ? decodeURIComponent(authorizeUrl).slice(0, 120) : 'n/a',
   );
@@ -686,6 +692,51 @@ function record(name, passed, detail = '') {
     Boolean(skipLink && skipLink.visible),
     skipLink ? `visible=${skipLink.visible}` : 'n/a',
   );
+
+  /*
+   * The skip link's TARGET must exist, on every page that renders the link.
+   *
+   * This was missing, and it was hiding a real failure: the marketing page's
+   * <main> had no id at all, so on the busiest page on the site the skip link
+   * pointed at nothing and activating it did nothing. Presence and visibility
+   * both passed — the link was there and it appeared on focus — which is
+   * precisely why asserting those two alone is not enough. A bypass mechanism
+   * that does not bypass anything fails 2.4.1 while looking correct.
+   *
+   * Checked per page rather than once, because the id lives in each route's own
+   * <main> while the link lives in the shared root layout: any new page can
+   * reintroduce the bug without touching the layout.
+   */
+  for (const target of ['/', '/login', '/signup']) {
+    await page.goto(`${BASE}${target}`, { waitUntil: 'networkidle' });
+
+    const skipTarget = await page.evaluate(() => {
+      const link = document.querySelector('a[href^="#"]');
+      if (!link) return { hasLink: false };
+
+      const id = (link.getAttribute('href') || '').slice(1);
+      const element = id ? document.getElementById(id) : null;
+      return {
+        hasLink: true,
+        id,
+        exists: Boolean(element),
+        // A landmark, not just any element: skipping to a <span> lands the
+        // user somewhere with no meaning attached.
+        isLandmark: element ? element.tagName === 'MAIN' || element.getAttribute('role') === 'main' : false,
+      };
+    });
+
+    record(
+      `a11y ${target}: the skip link's target exists`,
+      Boolean(skipTarget.hasLink && skipTarget.exists),
+      skipTarget.hasLink ? `href="#${skipTarget.id}" resolves=${skipTarget.exists}` : 'no skip link',
+    );
+    record(
+      `a11y ${target}: the skip link lands on the main landmark`,
+      Boolean(skipTarget.isLandmark),
+      `isLandmark=${skipTarget.isLandmark}`,
+    );
+  }
 
   /* ---------------------------------------------------------------- *
    * Focus indicator — WCAG 2.4.13 Focus Appearance

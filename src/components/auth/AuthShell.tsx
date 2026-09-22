@@ -13,7 +13,25 @@ export function AuthShell({
   footer: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-aurora-soft px-6 py-16">
+    /*
+     * <main>, not <div>, and with the id the root layout's skip link targets.
+     *
+     * All four auth pages render through this shell, and none of them had a
+     * main landmark — so "Skip to main content" pointed at nothing and
+     * activating it did nothing. Both existing browser assertions passed
+     * anyway: the link was present and it did become visible on focus. Only
+     * checking that the TARGET resolves catches it, which is the assertion
+     * this fix came with.
+     *
+     * tabIndex={-1} makes the landmark programmatically focusable, so the jump
+     * actually moves focus rather than only moving the viewport — without it,
+     * the next Tab press resumes from the skip link again.
+     */
+    <main
+      id="main-content"
+      tabIndex={-1}
+      className="flex min-h-screen items-center justify-center bg-aurora-soft px-6 py-16 outline-none"
+    >
       <div className="w-full max-w-md">
         <Link href="/" className="mb-8 flex justify-center font-display text-2xl font-bold text-ink">
           owbrand
@@ -28,7 +46,7 @@ export function AuthShell({
 
         <p className="mt-6 text-center text-sm text-content-secondary">{footer}</p>
       </div>
-    </div>
+    </main>
   );
 }
 
