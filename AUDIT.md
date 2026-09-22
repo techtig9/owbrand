@@ -162,3 +162,35 @@ accident through a missing matcher.
 
 Totals: **521 unit tests (32 files)**, zero lint warnings, contrast gate and
 build pass.
+
+---
+
+## Phase 4 — repository cleanup
+
+- **Two dead type modules deleted**: `lib/jobs/job-contract.ts` and
+  `lib/publishing/platform-types.ts`. Both were orphaned interfaces superseded
+  by `job-store.ts` and `social/platforms.ts`; nothing imported either.
+- **Twenty planning documents moved out of the repository root** into
+  `docs/history/`, with an index stating plainly that they describe intentions
+  and several contradict the shipped code — `PHASE_2_SETUP.md` routes every AI
+  call through a `lib/gemini.ts` that no longer exists, and
+  `PHASE_1_DESIGN_SYSTEM.md` specifies the palette the indigo system replaced.
+  Archived rather than deleted: they record *why* decisions were taken, which a
+  diff cannot show. The root now holds `README.md` and `AUDIT.md`.
+- **`docs/MIGRATIONS.md`** added: what each of the seven migrations does, the
+  two post-apply checks worth running as SQL, and the Supabase grant caveat.
+- **`npm run test:db` and `npm run test:ui`** added. `test:db` was the
+  workflow the README described without providing a way to run it.
+- **`engines` pinned to `>=20.9.0`.** It said `>=18.17.0` — Node 18 is
+  end-of-life, and Vercel warns that an open-ended floor silently follows each
+  new major.
+- **Test counts removed from the README.** It claimed 473; the number was 521
+  by the time anyone read it. A stale count is worse than none.
+- **CI gained two things**: the contrast gate, and a second job that installs
+  PostgreSQL 16 and runs the full migration chain plus the RLS assertions.
+  That closes the "database suite is not in CI" gap reported honestly in every
+  previous phase report.
+
+`npm ci` from the committed lockfile succeeds. No build output, archives or
+secrets are tracked. Git history contains no secrets — the only matches are
+test fixtures asserting that fake secrets do **not** leak.

@@ -38,10 +38,14 @@ missing; read it before assuming a feature is broken.
 
 ### Database
 
-Apply `supabase/migrations/` in filename order (`supabase db push`, or paste
-each file into the SQL editor). `supabase/schema.sql` is the original
-single-file schema and is kept only for reference — **the migrations are
-authoritative**.
+Apply `supabase/migrations/` in filename order — **[docs/MIGRATIONS.md](docs/MIGRATIONS.md)**
+lists what each one does, the two things to check afterwards, and one platform
+caveat that is easy to get wrong: a table-level `revoke` is **not** durable on
+Supabase, because a project's blanket grants can restore it. RLS is the control.
+
+`supabase/schema.sql` is the original single-file schema, kept for reference
+only — **the migrations are authoritative.** Where they disagree, the
+migrations are right.
 
 Then promote yourself:
 
@@ -59,16 +63,22 @@ limits, and a verification checklist.
 
 ## Commands
 
-| Command                  | What it does                                                                              |
-| ------------------------ | ----------------------------------------------------------------------------------------- |
-| `npm run verify`         | type-check → lint → contrast → unit tests → build. Run before pushing                     |
-| `npm test`               | Vitest (473 tests)                                                                        |
-| `npm run check:contrast` | Computes 68 WCAG 2.2 AA pairs across both themes and **fails the build** on any that miss |
-| `npm run type-check`     | `tsc --noEmit`                                                                            |
-| `npm run format`         | Prettier over `src`                                                                       |
+| Command                  | What it does                                                                                                      |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `npm run verify`         | type-check → lint → contrast → unit tests → build. Run this before pushing                                        |
+| `npm test`               | The unit and component suites                                                                                     |
+| `npm run test:ui`        | The component suite only                                                                                          |
+| `npm run test:db`        | Applies every migration to a throwaway PostgreSQL 16 cluster, then runs the RLS assertions. Needs `postgresql-16` |
+| `npm run check:contrast` | Computes every WCAG 2.2 AA colour pair across both themes and **fails the build** on any that miss                |
+| `npm run type-check`     | `tsc --noEmit`                                                                                                    |
+| `npm run format`         | Prettier over `src`                                                                                               |
 
-The RLS suite needs a live Postgres and is not part of `verify`; it runs
-separately against a real database. That gap is known, not forgotten.
+`test:db` is deliberately outside `verify`: it needs PostgreSQL server binaries,
+which not every contributor's machine has. That it is absent from CI for the
+same reason is a known gap, not a forgotten one.
+
+Counts are left out of this table on purpose. A README that claims a test
+number is wrong within a week, and a stale number is worse than none.
 
 ---
 
@@ -159,6 +169,8 @@ src/
 supabase/migrations/        authoritative schema, RLS, RPCs
 scripts/check-contrast.mjs  the WCAG gate
 docs/DEPLOY_VERCEL.md       deployment runbook
+docs/MIGRATIONS.md          migration order and post-apply checks
+docs/history/               superseded planning notes — intentions, not docs
 ```
 
 ---

@@ -9,10 +9,12 @@
     "start": "next start",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
+    "check:contrast": "node scripts/check-contrast.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:ui": "vitest run tests/ui",
+    "test:db": "bash supabase/test/run-db-tests.sh",
     "verify": "npm run type-check && npm run lint && npm run check:contrast && npm run test && npm run build",
-    "check:contrast": "node scripts/check-contrast.mjs",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\""
   },
@@ -56,6 +58,6 @@
     "vitest": "^2.1.9"
   },
   "engines": {
-    "node": ">=18.17.0"
+    "node": ">=20.9.0"
   }
 }
