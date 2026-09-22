@@ -1497,6 +1497,136 @@ begin
     ('rls: a tenant cannot insert a referral row', v_blocked, format('blocked=%s', v_blocked));
 end $$;
 
+-- These blocks run as the table owner, not as a tenant. The preceding block
+-- leaves `role` set to `authenticated`, under which inserting a users row
+-- violates RLS -- which is the policy working correctly, and exactly why the
+-- reset belongs here rather than at the end of the previous block where it is
+-- easy to forget.
+reset role;
+reset request.jwt.claim.sub;
+
+-- ---------------------------------------------------------------------------
+-- Phase 7: account deletion.
+--
+-- Two of these assert the things that would have broken it, and neither would
+-- have shown up in testing with a fresh account:
+--
+--   * payments CASCADED, so deletion destroyed records the privacy policy says
+--     are retained for tax purposes -- and most jurisdictions require kept.
+--   * approvals.reviewer_id had no ON DELETE clause, so deleting anyone who
+--     had ever reviewed an approval failed with a foreign key violation. It
+--     would have worked for new accounts and failed for exactly the long-lived
+--     accounts most likely to ask.
+--
+-- Users are seeded through auth.users, because public.users.id references it
+-- and handle_new_user() builds the workspace and subscription from the trigger.
+-- ---------------------------------------------------------------------------
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('44444444-4444-4444-4444-444444444444', 'deleteme@owbrand.test', '{"full_name":"Delete Me"}');
+
+do $$
+declare
+  v_user uuid := '44444444-4444-4444-4444-444444444444';
+  v_brand uuid;
+  v_asset uuid;
+  v_result record;
+  v_payment_rows integer;
+  v_payment_user uuid;
+  v_brand_rows integer;
+  v_audit_rows integer;
+  v_approval_reviewer uuid;
+  v_user_rows integer;
+begin
+  insert into public.brands (user_id, workspace_id, name, description)
+  select v_user, w.id, 'Doomed Brand', 'about to be deleted'
+    from public.workspaces w where w.owner_id = v_user limit 1
+  returning id into v_brand;
+
+  insert into public.payments (user_id, paddle_transaction_id, amount, status)
+  values (v_user, 'txn_delete_test_1', 12.00, 'completed');
+
+  insert into public.content_assets (brand_id, user_id, type, status)
+  values (v_brand, v_user, 'post', 'draft')
+  returning id into v_asset;
+
+  -- brand_id is NOT NULL on approvals; asset_id alone is not enough.
+  insert into public.approvals (brand_id, asset_id, status, reviewer_id, notes)
+  values (v_brand, v_asset, 'approved', v_user, 'reviewed before deletion');
+
+  select * into v_result from public.delete_user_account(v_user, 'test');
+
+  insert into _results values
+    ('deletion: succeeds even when the user reviewed an approval',
+     coalesce(v_result.deleted, false), coalesce(v_result.detail, 'ok'));
+
+  select count(*) into v_user_rows from public.users where id = v_user;
+  insert into _results values
+    ('deletion: the user row is gone', v_user_rows = 0, format('%s rows', v_user_rows));
+
+  -- The FK violation this would have hit is why the constraint was changed.
+  select reviewer_id into v_approval_reviewer from public.approvals where asset_id = v_asset;
+  insert into _results values
+    ('deletion: a reviewed approval survives with a null reviewer',
+     v_approval_reviewer is null, format('reviewer_id=%s', v_approval_reviewer));
+
+  -- Payments are RETAINED, anonymised.
+  -- No max(uuid) in Postgres, and aggregating an identifier would be a strange
+  -- thing to want anyway: there is exactly one row with this transaction id.
+  select count(*) into v_payment_rows
+    from public.payments where paddle_transaction_id = 'txn_delete_test_1';
+  select user_id into v_payment_user
+    from public.payments where paddle_transaction_id = 'txn_delete_test_1';
+
+  insert into _results values
+    ('deletion: the payment row is retained', v_payment_rows = 1,
+     format('%s rows', v_payment_rows)),
+    ('deletion: the retained payment is anonymised', v_payment_user is null,
+     format('user_id=%s', v_payment_user));
+
+  select count(*) into v_brand_rows from public.brands where id = v_brand;
+  insert into _results values
+    ('deletion: brands are removed', v_brand_rows = 0, format('%s rows', v_brand_rows));
+
+  -- Written before the delete, so it outlives the account it describes.
+  select count(*) into v_audit_rows from public.audit_logs
+   where action = 'account.deleted' and entity_id = v_user::text;
+  insert into _results values
+    ('deletion: an audit row survives the account it describes', v_audit_rows = 1,
+     format('%s rows', v_audit_rows));
+
+  -- A second call is a reported no-op, not an exception.
+  select * into v_result from public.delete_user_account(v_user, 'test');
+  insert into _results values
+    ('deletion: deleting an absent user reports failure rather than raising',
+     not coalesce(v_result.deleted, true),
+     coalesce(v_result.detail, 'unexpectedly deleted'));
+end $$;
+
+-- The last admin must be undeletable. Locking everybody out of the admin panel
+-- is not recoverable from inside the product, and a deletion request is exactly
+-- when somebody does it by accident.
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('55555555-5555-5555-5555-555555555555', 'only-admin@owbrand.test', '{"full_name":"Only Admin"}');
+
+do $$
+declare
+  v_admin uuid := '55555555-5555-5555-5555-555555555555';
+  v_result record;
+  v_still_there integer;
+begin
+  update public.users set role = 'admin' where id = v_admin;
+  update public.users set role = 'user' where role = 'admin' and id <> v_admin;
+
+  select * into v_result from public.delete_user_account(v_admin, 'test');
+  select count(*) into v_still_there from public.users where id = v_admin;
+
+  insert into _results values
+    ('deletion: refuses to delete the only admin', not coalesce(v_result.deleted, true),
+     coalesce(v_result.detail, 'unexpectedly deleted')),
+    ('deletion: the only admin is still present afterwards', v_still_there = 1,
+     format('%s rows', v_still_there));
+end $$;
+
 reset role;
 reset request.jwt.claim.sub;
 

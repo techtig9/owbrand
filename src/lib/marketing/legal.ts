@@ -84,7 +84,8 @@ export const LEGAL_DOCUMENTS: Record<string, LegalDocument> = {
       {
         heading: 'Deleting your data',
         paragraphs: [
-          'You can request deletion of your account and its data from the account settings page. Deletion removes your brands, products, generated content, connected-account tokens and analytics.',
+          'You can delete your account and its data yourself from the account settings page — it happens immediately and needs no request. Deletion removes your brands, products, generated content, connected-account tokens and analytics.',
+          'The same page exports everything on your account as a single JSON file. Access tokens for connected accounts are deliberately left out of that export: they are encrypted at rest, and putting a working credential into a downloaded file would be a worse outcome than omitting it.',
           'Two things survive, and both are deliberate: billing records we are required to retain for tax and accounting purposes, and aggregate counters that contain no reference to you.',
         ],
       },
