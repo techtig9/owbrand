@@ -8,6 +8,7 @@ import { supabaseBrowser } from '@/lib/supabase/client';
 import { CommandPalette } from './CommandPalette';
 import { MobileNav } from './MobileNav';
 import { ThemeToggle } from '@/components/theme/ThemeToggle';
+import { FeedbackWidget } from './FeedbackWidget';
 
 /**
  * The application top bar.
@@ -53,7 +54,9 @@ export function TopNav({
 
       <div className="ml-auto flex items-center gap-2 sm:gap-3">
         {unlimited ? (
-          <span className="hidden text-xs font-medium text-content-secondary sm:inline">Unlimited credits</span>
+          <span className="hidden text-xs font-medium text-content-secondary sm:inline">
+            Unlimited credits
+          </span>
         ) : (
           <Link
             href="/dashboard/billing"
@@ -79,6 +82,12 @@ export function TopNav({
             <span className="tabular-nums">{creditsRemaining.toLocaleString()} credits</span>
           </Link>
         )}
+
+        {/* Feedback lives in the chrome, not on a settings page: the moment
+            somebody wants to report something is the moment it happened. */}
+        <span className="hidden sm:inline">
+          <FeedbackWidget />
+        </span>
 
         <ThemeToggle />
 

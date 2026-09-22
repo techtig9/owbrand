@@ -1,6 +1,6 @@
 import type { MetadataRoute } from 'next';
 import { publicEnv } from '@/lib/env';
-import { PUBLIC_ROUTES, canonicalUrl } from '@/lib/marketing/site-map';
+import { INDEXABLE_ROUTES, canonicalUrl } from '@/lib/marketing/site-map';
 
 /**
  * The sitemap is generated from PUBLIC_ROUTES, the same list robots.ts reads,
@@ -13,7 +13,10 @@ import { PUBLIC_ROUTES, canonicalUrl } from '@/lib/marketing/site-map';
 export default function sitemap(): MetadataRoute.Sitemap {
   const builtAt = new Date();
 
-  return PUBLIC_ROUTES.map((route) => ({
+  // INDEXABLE_ROUTES, not PUBLIC_ROUTES: the legal drafts are linked and
+  // reachable but set robots noindex, and a sitemap that asks for a noindex
+  // page to be indexed is a contradiction a crawler reports back to you.
+  return INDEXABLE_ROUTES.map((route) => ({
     url: canonicalUrl(publicEnv.siteUrl, route.path),
     lastModified: builtAt,
     changeFrequency: route.changeFrequency,

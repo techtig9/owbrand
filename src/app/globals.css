@@ -377,6 +377,102 @@
     filter: grayscale(0);
   }
 
+  /*
+   * Long-form copy for MDX content (blog, help centre).
+   *
+   * Written against the design tokens rather than added as a typography
+   * plugin. A plugin ships its own colour scale, which then needs a second set
+   * of overrides to follow the dark theme — and the overrides are what rot.
+   * Twenty lines here inherit every token change for free.
+   */
+  .prose-owbrand {
+    color: var(--color-text-secondary);
+    font-size: 1rem;
+    line-height: 1.75;
+  }
+
+  .prose-owbrand > * + * {
+    margin-top: 1.25em;
+  }
+
+  .prose-owbrand h2 {
+    margin-top: 2.5em;
+    margin-bottom: -0.25em;
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    color: var(--color-text);
+  }
+
+  .prose-owbrand h3 {
+    margin-top: 2em;
+    margin-bottom: -0.5em;
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--color-text);
+  }
+
+  .prose-owbrand strong {
+    font-weight: 600;
+    color: var(--color-text);
+  }
+
+  .prose-owbrand a {
+    color: var(--color-primary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .prose-owbrand ul,
+  .prose-owbrand ol {
+    padding-left: 1.5rem;
+  }
+
+  .prose-owbrand ul {
+    list-style: disc;
+  }
+
+  .prose-owbrand ol {
+    list-style: decimal;
+  }
+
+  .prose-owbrand li + li {
+    margin-top: 0.5em;
+  }
+
+  .prose-owbrand code {
+    border-radius: var(--radius-sm);
+    background-color: var(--color-surface-raised);
+    padding: 0.125em 0.375em;
+    font-size: 0.875em;
+    color: var(--color-text);
+  }
+
+  .prose-owbrand pre {
+    overflow-x: auto;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    background-color: var(--color-surface-raised);
+    padding: 1rem;
+    font-size: 0.875rem;
+  }
+
+  .prose-owbrand pre code {
+    background: none;
+    padding: 0;
+  }
+
+  .prose-owbrand blockquote {
+    border-left: 3px solid var(--color-border-strong);
+    padding-left: 1rem;
+    font-style: italic;
+  }
+
+  .prose-owbrand hr {
+    border: 0;
+    border-top: 1px solid var(--color-border);
+  }
+
   /* Skeleton, spec section 14. Opacity only — animating a gradient's position
      repaints on every frame. */
   .skeleton {

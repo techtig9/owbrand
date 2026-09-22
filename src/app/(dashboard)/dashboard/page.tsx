@@ -15,9 +15,19 @@ import { getCurrentUser } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { accessibleBrandIds } from '@/lib/auth/guards';
 import { confidenceBand } from '@/lib/analytics/signals';
-import { summarize, previousRange, sumTotals, compareTotals, type DailyMetricRecord } from '@/lib/analytics/metrics';
+import {
+  summarize,
+  previousRange,
+  sumTotals,
+  compareTotals,
+  type DailyMetricRecord,
+} from '@/lib/analytics/metrics';
 import { accountHealth, type SocialAccountRow } from '@/lib/social/account-store';
 import { compactNumber, formatRate } from '@/components/analytics/chart-tokens';
+import { loadOnboarding } from '@/lib/onboarding/load';
+import { OnboardingChecklist, ActivationSurvey } from '@/components/dashboard/OnboardingChecklist';
+import { UsagePanel } from '@/components/dashboard/UsagePanel';
+import type { PlanId } from '@/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,12 +62,19 @@ export default async function DashboardPage() {
     return <FirstRun name={user.name} />;
   }
 
-  const [attention, performance, recommendation, activity] = await Promise.all([
+  const [attention, performance, recommendation, activity, onboarding, subscription] = await Promise.all([
     loadAttention(brandIds, db),
     loadPerformance(brandIds, db),
     loadTopRecommendation(brandIds, db),
     loadActivity(brandIds, db),
+    loadOnboarding(user.id, db),
+    // Plan and remaining credits for the usage meter. Read here rather than in
+    // the panel so the whole screen is one round of parallel queries.
+    db.from('subscriptions').select('plan, credits_remaining').eq('user_id', user.id).maybeSingle(),
   ]);
+
+  const plan = (subscription.data?.plan as PlanId | undefined) ?? 'free';
+  const creditsRemaining = subscription.data?.credits_remaining ?? 0;
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -77,6 +94,15 @@ export default async function DashboardPage() {
           Create
         </Link>
       </div>
+
+      {/* 0. Setup, while it is still incomplete. Above attention because a
+             half-configured account has nothing to attend to yet — and it
+             removes itself entirely once every step is done. */}
+      <OnboardingChecklist checklist={onboarding.checklist} dismissed={onboarding.dismissed} />
+
+      {/* The one-question survey, asked once, only after the product has
+          actually worked for this account. */}
+      {onboarding.surveyDue && <ActivationSurvey />}
 
       {/* 1. What needs attention. First, because it is the only section that
              can be urgent, and burying it under vanity counts is what made
@@ -98,6 +124,10 @@ export default async function DashboardPage() {
 
           {/* 5. What did AI do. */}
           <ActivityPanel activity={activity} />
+
+          {/* 6. What it is costing, and an upgrade offer only when the
+                 remainder actually warrants one. */}
+          <UsagePanel plan={plan} creditsRemaining={creditsRemaining} />
         </div>
       </div>
     </div>
@@ -189,8 +219,8 @@ function PerformancePanel({ performance }: { performance: Performance | null }) 
           Performance
         </h2>
         <p className="mt-2 text-sm leading-6 text-content-secondary">
-          Nothing has been measured yet. Analytics arrive once an account is connected and the ingestion job has
-          run — so this stays empty rather than showing zeros nobody measured.
+          Nothing has been measured yet. Analytics arrive once an account is connected and the ingestion job
+          has run — so this stays empty rather than showing zeros nobody measured.
         </p>
         <Link href="/dashboard/connections" className="btn-ghost mt-4">
           <Link2 className="h-4 w-4" aria-hidden="true" />
@@ -345,7 +375,11 @@ function NextStepsPanel({ attention, hasPerformance }: { attention: Attention; h
         {steps.map((step, index) => {
           const Icon = step.icon;
           return (
-            <li key={step.href} className="stagger-item" style={{ '--stagger-index': index } as React.CSSProperties}>
+            <li
+              key={step.href}
+              className="stagger-item"
+              style={{ '--stagger-index': index } as React.CSSProperties}
+            >
               <Link
                 href={step.href}
                 className="flex items-center gap-2.5 rounded-md px-2 py-2 text-sm text-content transition-colors duration-micro hover:bg-surface-raised"
@@ -431,7 +465,11 @@ async function loadAttention(brandIds: string[], db: Db): Promise<Attention> {
       .in('brand_id', brandIds)
       .eq('resolved', false)
       .eq('severity', 'block'),
-    db.from('social_posts').select('id', { count: 'exact', head: true }).in('brand_id', brandIds).eq('status', 'failed'),
+    db
+      .from('social_posts')
+      .select('id', { count: 'exact', head: true })
+      .in('brand_id', brandIds)
+      .eq('status', 'failed'),
     db
       .from('social_accounts')
       .select(
@@ -547,7 +585,12 @@ async function loadTopRecommendation(brandIds: string[], db: Db): Promise<TopRec
     .limit(1)
     .maybeSingle();
 
-  const row = data as { title: string; recommendation: string; confidence: string | number | null; evidence: unknown } | null;
+  const row = data as {
+    title: string;
+    recommendation: string;
+    confidence: string | number | null;
+    evidence: unknown;
+  } | null;
   if (!row) return null;
 
   // A recommendation with no evidence cannot be audited, so it is not shown —
