@@ -22,11 +22,12 @@ export const maxDuration = 300;
 async function handle(request: Request): Promise<NextResponse> {
   const expected = serverEnv.cronSecret;
 
+  // CRON_SECRET unset -> 404, identical to a wrong secret. See the full
+  // reasoning in api/cron/publish/route.ts: a 503 naming the feature and the
+  // missing variable tells an anonymous caller more than a 401 would.
   if (!expected) {
-    return NextResponse.json(
-      { error: 'The connection health job is not configured. Set CRON_SECRET.', code: 'not_configured' },
-      { status: 503 }
-    );
+    logger.warn('cron:social_health_refused', { reason: 'CRON_SECRET not configured' });
+    return NextResponse.json({ error: 'Not found.' }, { status: 404 });
   }
 
   const authHeader = request.headers.get('authorization');

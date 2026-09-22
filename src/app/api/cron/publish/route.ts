@@ -40,15 +40,34 @@ export const maxDuration = 300;
 async function handle(request: Request): Promise<NextResponse> {
   const expected = serverEnv.cronSecret;
 
+  /*
+   * CRON_SECRET unset -> 404, the same answer a wrong secret gets.
+   *
+   * This used to return 503 with `{"error":"The publishing worker trigger is
+   * not configured. Set CRON_SECRET.", "code":"not_configured"}` to ANY
+   * anonymous caller. The browser suite caught it, and the assertion it broke
+   * states the reason outright: "a 401 would confirm the endpoint exists and
+   * takes a secret". A 503 naming the feature AND the missing variable is
+   * strictly worse than a 401 -- it confirms the path, identifies it as a
+   * publishing trigger, and tells a stranger the deployment is misconfigured
+   * and exactly which knob is missing.
+   *
+   * The elsewhere-correct instinct -- be honest about misconfiguration rather
+   * than opaque -- is wrong for this one route, and the distinction is WHO is
+   * asking. A Paddle webhook is called by Paddle, and the operator reads their
+   * own logs. This endpoint is reachable by anyone on the internet holding
+   * nothing at all.
+   *
+   * The operator still gets the diagnosis, from two places that require
+   * standing: the warn line below, and /api/ready, which already reports
+   * "CRON_SECRET is unset, so /api/cron/publish refuses every caller".
+   *
+   * With no secret configured there is, functionally, no such endpoint. 404 is
+   * not a lie.
+   */
   if (!expected) {
     logger.warn('cron:publish_refused', { reason: 'CRON_SECRET not configured' });
-    return NextResponse.json(
-      {
-        error: 'The publishing worker trigger is not configured. Set CRON_SECRET.',
-        code: 'not_configured',
-      },
-      { status: 503 }
-    );
+    return NextResponse.json({ error: 'Not found.' }, { status: 404 });
   }
 
   // Both header styles: `Authorization: Bearer <secret>` is what Vercel Cron
