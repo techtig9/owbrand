@@ -4,6 +4,7 @@ import { headers } from 'next/headers';
 import { Toaster } from 'sonner';
 import { ThemeScript } from '@/components/theme/ThemeScript';
 import './globals.css';
+import { publicEnv } from '@/lib/env';
 
 /**
  * Typography, per spec section 3.
@@ -41,7 +42,9 @@ export const metadata: Metadata = {
   title: 'owbrand — Your brand, built and run by AI',
   description:
     'Describe your brand, get a complete identity and website in minutes, then keep it growing with AI-generated photos, posts, logos, and reels — all from one dashboard. Built by Techtig.',
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'),
+  // publicEnv.siteUrl already strips a trailing slash and falls back for dev;
+  // a second literal here is a second thing to get wrong.
+  metadataBase: new URL(publicEnv.siteUrl),
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

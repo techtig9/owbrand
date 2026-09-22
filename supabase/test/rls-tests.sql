@@ -122,6 +122,12 @@ select pg_temp.assert_eq(
 
 -- Every tenant-owned table that has RLS enabled must now have at least one
 -- policy, except the deliberately worker-only ones.
+--
+-- The guard catches a real and easy mistake -- enabling RLS and forgetting the
+-- policies, which makes a table silently invisible to the application -- so the
+-- exception list below stays explicit and short rather than the predicate being
+-- loosened. A table earns a place on it only when NO user session should ever
+-- reach it, and each entry says which kind it is.
 select pg_temp.assert_eq(
   'rls: no tenant table is left enabled-with-no-policy',
   (select count(*)::int
@@ -132,7 +138,11 @@ select pg_temp.assert_eq(
       and t.rowsecurity
       and coalesce(p.n, 0) = 0
       -- Worker-only tables: invisible to clients by design.
-      and t.tablename not in ('webhook_events','publishing_jobs','marketing_actions','worker_heartbeats')
+      and t.tablename not in ('webhook_events','publishing_jobs','marketing_actions','worker_heartbeats',
+      -- Superseded orphans, locked down by 20260922000014. Policy-less on
+      -- purpose: nothing should read them through a session, and they are kept
+      -- only because dropping an existing table is destructive.
+                              'media_jobs','product_asset_versions')
   ), 0);
 
 -- Products insert must have derived workspace_id from the brand.
@@ -1203,6 +1213,145 @@ begin
 
   select count(*) into n from public.post_metrics;
   insert into _results values ('rls: anonymous cannot read post metrics', n = 0, format('%s rows', n));
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- The two superseded tables the audit found with RLS switched off.
+--
+-- 20260922000014 enables RLS on both with NO policies and revokes tenant
+-- privileges. Both halves are asserted, because either alone can be undone by
+-- a later migration without anyone noticing: a `grant all on all tables` would
+-- restore the privilege, and RLS could be disabled while the revoke stayed.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  rls_media boolean;
+  rls_pav boolean;
+  pol_media integer;
+  pol_pav integer;
+begin
+  select relrowsecurity into rls_media from pg_class
+   where oid = 'public.media_jobs'::regclass;
+  select relrowsecurity into rls_pav from pg_class
+   where oid = 'public.product_asset_versions'::regclass;
+
+  insert into _results values
+    ('rls: media_jobs has row level security enabled', coalesce(rls_media, false),
+     format('relrowsecurity=%s', rls_media)),
+    ('rls: product_asset_versions has row level security enabled', coalesce(rls_pav, false),
+     format('relrowsecurity=%s', rls_pav));
+
+  select count(*) into pol_media from pg_policies
+   where schemaname = 'public' and tablename = 'media_jobs';
+  select count(*) into pol_pav from pg_policies
+   where schemaname = 'public' and tablename = 'product_asset_versions';
+
+  -- Zero policies is the intent, not an omission: RLS with an empty policy set
+  -- denies every tenant-role request while service_role still bypasses.
+  insert into _results values
+    ('rls: media_jobs grants no tenant policy', pol_media = 0, format('%s policies', pol_media)),
+    ('rls: product_asset_versions grants no tenant policy', pol_pav = 0, format('%s policies', pol_pav));
+
+end $$;
+
+-- Assert the BEHAVIOUR a tenant session gets, not the privilege bit.
+--
+-- The first version of this test checked has_table_privilege(...) = false and
+-- failed -- correctly. The migration's revoke does run, but this harness then
+-- replays Supabase's blanket `grant ... on all tables in schema public to
+-- authenticated`, exactly as a hosted project does, and the privilege comes
+-- back. So the revoke is real but not durable, and a test asserting it would
+-- have locked in a guarantee the platform does not actually provide.
+--
+-- What survives every grant is relrowsecurity. These assertions therefore
+-- describe the outcome that holds even after the privileges are restored:
+-- zero rows visible, and writes rejected.
+set role authenticated;
+set request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';
+
+do $$
+declare
+  n_media integer;
+  n_pav integer;
+  insert_refused boolean := false;
+begin
+  select count(*) into n_media from public.media_jobs;
+  select count(*) into n_pav from public.product_asset_versions;
+
+  insert into _results values
+    ('rls: a tenant session reads no rows from media_jobs', n_media = 0, format('%s rows', n_media)),
+    ('rls: a tenant session reads no rows from product_asset_versions', n_pav = 0, format('%s rows', n_pav));
+
+  begin
+    insert into public.media_jobs (user_id, brand_id, kind)
+    values ('11111111-1111-1111-1111-111111111111',
+            '22222222-2222-2222-2222-222222222222', 'probe');
+    insert_refused := false;
+  exception when others then
+    -- Either an RLS violation or a FK violation is a refusal. The point is
+    -- that the row does not land: an accepted insert is what turns this table
+    -- into an existence oracle for another tenant's brand ids.
+    insert_refused := true;
+  end;
+
+  insert into _results values
+    ('rls: a tenant session cannot insert into media_jobs', insert_refused,
+     format('refused=%s', insert_refused));
+end $$;
+
+reset role;
+reset request.jwt.claim.sub;
+
+-- ---------------------------------------------------------------------------
+-- Every SECURITY DEFINER function must be unreachable from a tenant role.
+--
+-- Written as a sweep rather than a list of names so a definer function added
+-- later fails this test until it is explicitly revoked. A per-name check only
+-- ever catches the functions someone remembered to add to it -- which is how
+-- the four this migration fixes were missed in the first place.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  leaky text;
+  n integer;
+begin
+  select string_agg(p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')', ', '),
+         count(*)
+    into leaky, n
+    from pg_proc p
+    join pg_namespace ns on ns.oid = p.pronamespace
+   where ns.nspname = 'public'
+     and p.prosecdef
+     and (has_function_privilege('anon', p.oid, 'EXECUTE')
+       or has_function_privilege('authenticated', p.oid, 'EXECUTE'))
+     -- These three are meant to be callable: they are the RLS helpers the
+     -- policies themselves invoke, so revoking them would break every policy.
+     and p.proname not in ('is_workspace_member', 'can_access_brand', 'is_app_admin');
+
+  insert into _results values
+    ('rls: no unexpected SECURITY DEFINER function is executable by a tenant role',
+     coalesce(n, 0) = 0,
+     coalesce(leaky, 'none'));
+end $$;
+
+-- A positive control for the sweep above. If the query were simply wrong --
+-- wrong catalog, wrong privilege name -- it would report zero leaks forever
+-- and pass. The three RLS helpers ARE granted to authenticated on purpose, so
+-- an identical query without the exclusion must find them.
+do $$
+declare n integer;
+begin
+  select count(*) into n
+    from pg_proc p
+    join pg_namespace ns on ns.oid = p.pronamespace
+   where ns.nspname = 'public'
+     and p.prosecdef
+     and has_function_privilege('authenticated', p.oid, 'EXECUTE')
+     and p.proname in ('is_workspace_member', 'can_access_brand', 'is_app_admin');
+
+  insert into _results values
+    ('rls: the definer sweep can actually see granted functions', n = 3,
+     format('%s of 3 helper functions visible', n));
 end $$;
 
 reset role;

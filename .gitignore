@@ -9,3 +9,7 @@ node_modules
 # TypeScript incremental build cache
 tsconfig.tsbuildinfo
 *.tsbuildinfo
+
+# Build output from other bundlers, and the release archive Phase 5 produces.
+dist/
+*.zip

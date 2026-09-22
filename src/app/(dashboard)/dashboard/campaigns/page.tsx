@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Megaphone, Plus, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 export default function Campaigns() {
@@ -8,25 +8,60 @@ export default function Campaigns() {
     [campaigns, setCampaigns] = useState<any[]>([]),
     [name, setName] = useState(''),
     [objective, setObjective] = useState('sales'),
-    [loading, setLoading] = useState(false);
-  async function load() {
-    const b = await fetch('/api/brands').then((r) => r.json());
-    setBrands(b.brands || []);
-    const id = brandId || b.brands?.[0]?.id;
-    if (id) {
-      setBrandId(id);
-      const c = await fetch(`/api/campaigns?brandId=${id}`).then((r) => r.json());
-      setCampaigns(c.campaigns || []);
+    [loading, setLoading] = useState(false),
+    [error, setError] = useState<string | null>(null);
+  /*
+   * Loads the brand list and selects one. It deliberately does NOT fetch
+   * campaigns: setting brandId triggers the effect below, and the previous
+   * version did both, so every first load fetched the campaign list twice.
+   *
+   * Wrapped in useCallback so it can be an honest effect dependency. The
+   * lint warning this clears was pointing at a real staleness hazard, not
+   * just ceremony.
+   */
+  const load = useCallback(async () => {
+    try {
+      const response = await fetch('/api/brands');
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? 'Could not load your brands.');
+
+      setBrands(body.brands || []);
+      const id = brandId || body.brands?.[0]?.id;
+      if (id) setBrandId(id);
+    } catch (err) {
+      // Previously a floating promise with no catch: a failed request left the
+      // page empty with no explanation and no way to retry.
+      setError(err instanceof Error ? err.message : 'Could not load your brands.');
     }
-  }
+  }, [brandId]);
+
   useEffect(() => {
-    load();
+    void load();
+    // Intentionally mount-only: `load` depends on brandId, and re-running it
+    // when brandId changes would reselect the first brand and fight the user.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
   useEffect(() => {
-    if (brandId)
-      fetch(`/api/campaigns?brandId=${brandId}`)
-        .then((r) => r.json())
-        .then((d) => setCampaigns(d.campaigns || []));
+    if (!brandId) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const response = await fetch(`/api/campaigns?brandId=${encodeURIComponent(brandId)}`);
+        const body = await response.json();
+        if (cancelled) return;
+        if (!response.ok) throw new Error(body.error ?? 'Could not load campaigns.');
+        setCampaigns(body.campaigns || []);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Could not load campaigns.');
+      }
+    })();
+
+    // Guards against a slow response for an old brand overwriting a newer one.
+    return () => {
+      cancelled = true;
+    };
   }, [brandId]);
   async function add() {
     if (!name.trim()) return toast.error('Give the campaign a name.');

@@ -261,7 +261,24 @@ export default function Products() {
               <article key={a.id} className="overflow-hidden rounded-2xl border border-line bg-surface">
                 <div className="aspect-[4/3] bg-surface-raised">
                   {a.signedUrl ? (
-                    <img src={a.signedUrl} alt={selected.name} className="h-full w-full object-contain" />
+                    /*
+                     * A raw <img>, not next/image, and on purpose.
+                     *
+                     * These are short-lived Supabase signed URLs. next/image
+                     * proxies the source through the optimizer and caches the
+                     * result keyed by the full URL including its signature, so
+                     * every rotation is a cache miss that re-optimizes — a
+                     * per-image cost on user uploads, for no benefit on
+                     * images that are already sized for this grid.
+                     */
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={a.signedUrl}
+                      alt={`${selected.name} product image`}
+                      loading="lazy"
+                      decoding="async"
+                      className="h-full w-full object-contain"
+                    />
                   ) : (
                     <div className="flex h-full items-center justify-center text-sm text-content-tertiary">
                       <Camera className="mr-2 h-5 w-5" />

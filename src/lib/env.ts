@@ -104,6 +104,21 @@ export const serverEnv = {
     assertServer('PADDLE_WEBHOOK_SECRET');
     return required('PADDLE_WEBHOOK_SECRET', process.env.PADDLE_WEBHOOK_SECRET);
   },
+  /**
+   * The Paddle price id for a plan and cadence.
+   *
+   * A function rather than a getter because the variable name is composed:
+   * PADDLE_PRICE_<PLAN>_<CADENCE>. It goes through `required()` so an unset
+   * price throws MissingEnvError like every other missing variable, and the
+   * API layer answers 503 `not_configured` instead of a generic 500. The
+   * previous version threw a bare Error from lib/paddle.ts and produced the
+   * latter.
+   */
+  paddlePriceId(plan: string, cadence: 'monthly' | 'yearly'): string {
+    const name = `PADDLE_PRICE_${plan.toUpperCase()}_${cadence.toUpperCase()}`;
+    assertServer(name);
+    return required(name, process.env[name], 'Create the price in Paddle first, then set this.');
+  },
 
   /* --- Rate limiting (Upstash Redis) --- */
   get upstashUrl(): string | undefined {
@@ -116,7 +131,11 @@ export const serverEnv = {
   /* --- Social publishing (Meta) --- */
   get metaAppId(): string {
     assertServer('META_APP_ID');
-    return required('META_APP_ID', process.env.META_APP_ID, 'From developers.facebook.com → your app → Settings → Basic.');
+    return required(
+      'META_APP_ID',
+      process.env.META_APP_ID,
+      'From developers.facebook.com → your app → Settings → Basic.'
+    );
   },
   get metaAppSecret(): string {
     assertServer('META_APP_SECRET');
