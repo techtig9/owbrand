@@ -4,6 +4,7 @@ import { getCurrentUser } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { accountHealth, type SocialAccountRow } from '@/lib/social/account-store';
 import { DangerZone } from '@/components/dashboard/DangerZone';
+import { ApiKeys } from '@/components/dashboard/ApiKeys';
 
 export const dynamic = 'force-dynamic';
 
@@ -88,6 +89,8 @@ export default async function SettingsPage() {
           Manage connections
         </Link>
       </section>
+
+      <ApiKeys />
 
       {/*
         Deletion and export are real as of Phase 7. This section previously

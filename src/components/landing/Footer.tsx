@@ -27,6 +27,7 @@ const PRODUCT_LINKS = [
 const COMPANY_LINKS = [
   { href: '/changelog', label: 'Changelog' },
   { href: '/blog', label: 'Blog' },
+  { href: '/docs/api', label: 'API' },
 ];
 
 const LEGAL_LINKS = [

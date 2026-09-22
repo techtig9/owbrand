@@ -14,6 +14,7 @@ import { PublishError } from '@/lib/social/errors';
 import { isSocialPlatform, type SocialPlatform } from '@/lib/social/platforms';
 import { decideRetry, DEFAULT_MAX_ATTEMPTS } from './retry-policy';
 import { logger } from '@/lib/logger';
+import { enqueueWebhook } from '@/lib/webhooks/deliver';
 
 /**
  * The publishing worker.
@@ -207,6 +208,25 @@ async function processJob(job: PublishingJobRow, db: Db): Promise<JobOutcome> {
       platform,
       externalPostId: outcome.externalPostId,
     });
+
+    /*
+     * Queued, never sent inline. A subscriber that takes ten seconds to
+     * respond must not add ten seconds to this worker's batch, and one that is
+     * down must not turn a successful publish into a failed job.
+     * `enqueueWebhook` swallows its own errors for the same reason.
+     */
+    await enqueueWebhook({
+      brandId,
+      event: 'post.published',
+      data: {
+        postId: post.id,
+        brandId,
+        platform,
+        externalPostId: outcome.externalPostId,
+        externalUrl: outcome.externalUrl,
+        publishedAt: new Date().toISOString(),
+      },
+    }, db);
 
     return { outcome: 'published' };
   } catch (error) {

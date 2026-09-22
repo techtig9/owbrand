@@ -1739,6 +1739,67 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
+-- Public API column contract (Phase 7)
+-- ---------------------------------------------------------------------------
+-- Every column /api/v1 selects, asserted to exist.
+--
+-- This exists because two of these endpoints were written against columns that
+-- were not there: content_assets was queried for `kind`, `title` and `body`
+-- when it has `type`, `url` and `caption`, and brands for `tagline` and
+-- `industry`, which it has never had. TypeScript cannot catch it — a Supabase
+-- select list is a string — and the failure surfaces as a 500 for an
+-- integrator, in a route no dashboard exercises.
+--
+-- Adding a column to an API response means adding it here.
+do $$
+declare
+  v_missing text;
+  v_expected text[];
+  v_table text;
+  v_pairs text[][] := array[
+    array['brands', 'id,name,description,logo_url,brand_colors,created_at'],
+    array['social_posts', 'id,brand_id,platform,status,caption,scheduled_for,published_at,external_url,created_at'],
+    array['content_assets', 'id,brand_id,product_id,type,url,caption,status,created_at'],
+    array['api_keys', 'id,user_id,name,key_hash,key_prefix,scopes,last_used_at,expires_at,revoked_at,created_at'],
+    array['webhook_endpoints', 'id,user_id,brand_id,url,secret,events,enabled,consecutive_failures,created_at'],
+    array['webhook_deliveries', 'id,endpoint_id,event_type,payload,status,attempts,max_attempts,next_attempt_at,response_status,delivered_at,created_at']
+  ];
+begin
+  for i in 1 .. array_length(v_pairs, 1) loop
+    v_table := v_pairs[i][1];
+    v_expected := string_to_array(v_pairs[i][2], ',');
+
+    select string_agg(c, ', ') into v_missing
+      from unnest(v_expected) as c
+     where not exists (
+       select 1 from information_schema.columns
+        where table_schema = 'public' and table_name = v_table and column_name = c
+     );
+
+    insert into _results values
+      (format('api contract: %s has every column /api/v1 selects', v_table),
+       v_missing is null,
+       coalesce('missing: ' || v_missing, 'ok'));
+  end loop;
+end $$;
+
+-- A positive control: the check must be able to FAIL. Without this, a typo in
+-- the query above would report every table clean forever.
+do $$
+declare v_found boolean;
+begin
+  select exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'brands'
+       and column_name = 'a_column_that_does_not_exist'
+  ) into v_found;
+
+  insert into _results values
+    ('api contract: the column check can detect an absent column', not v_found,
+     case when v_found then 'found a column that cannot exist' else 'ok' end);
+end $$;
+
+-- ---------------------------------------------------------------------------
 -- Report
 -- ---------------------------------------------------------------------------
 \set QUIET off
