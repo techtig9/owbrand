@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Info, Loader2, ShieldCheck, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import { Skeleton } from '@/components/ui';
+import { StatCard } from '@/components/dashboard/shared';
 
 /**
  * The approval inbox.
@@ -107,7 +109,7 @@ export function ApprovalInbox({ brandId }: { brandId?: string }) {
     return (
       <div className="space-y-4" role="status" aria-label="Loading approvals">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="h-40 animate-pulse rounded-2xl bg-surface-raised" />
+          <Skeleton key={i} className="h-40 rounded-2xl" />
         ))}
         <span className="sr-only">Loading approvals…</span>
       </div>
@@ -142,9 +144,9 @@ export function ApprovalInbox({ brandId }: { brandId?: string }) {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap gap-3">
-        <Stat label="Awaiting review" value={counts.pending} />
-        <Stat label="Blocking" value={counts.blocked} tone="danger" />
-        <Stat label="Advisory" value={counts.review} tone="warning" />
+        <StatCard label="Awaiting review" value={counts.pending.toLocaleString()} />
+        <StatCard label="Blocking" value={counts.blocked.toLocaleString()} />
+        <StatCard label="Advisory" value={counts.review.toLocaleString()} />
       </div>
 
       <ul className="space-y-4">
@@ -210,8 +212,8 @@ export function ApprovalInbox({ brandId }: { brandId?: string }) {
                   className="mt-0.5 h-4 w-4 rounded border-line"
                 />
                 <span>
-                  I have reviewed each blocking finding above and confirm this copy is accurate and permitted for
-                  this brand.
+                  I have reviewed each blocking finding above and confirm this copy is accurate and permitted
+                  for this brand.
                 </span>
               </label>
             )}
@@ -253,18 +255,6 @@ export function ApprovalInbox({ brandId }: { brandId?: string }) {
           </li>
         ))}
       </ul>
-    </div>
-  );
-}
-
-function Stat({ label, value, tone }: { label: string; value: number; tone?: 'danger' | 'warning' }) {
-  const toneClass =
-    tone === 'danger' ? 'text-danger' : tone === 'warning' ? 'text-warning' : 'text-ink';
-
-  return (
-    <div className="rounded-2xl border border-line bg-surface px-5 py-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-content-tertiary">{label}</p>
-      <p className={`mt-1 font-display text-2xl font-bold tabular-nums ${toneClass}`}>{value}</p>
     </div>
   );
 }

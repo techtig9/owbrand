@@ -9,6 +9,7 @@ import { AuthShell, FormField, FormError } from '@/components/auth/AuthShell';
 import { GoogleButton } from '@/components/auth/GoogleButton';
 import { toFriendlyAuthError, callbackErrorMessage } from '@/lib/auth/auth-errors';
 import { safeRedirectPath } from '@/lib/security/redirect';
+import { Skeleton } from '@/components/ui';
 
 function LoginForm() {
   const router = useRouter();
@@ -107,7 +108,10 @@ function LoginForm() {
           placeholder="••••••••"
         />
         <div className="text-right">
-          <Link href="/forgot-password" className="text-xs font-medium text-content-secondary hover:text-primary">
+          <Link
+            href="/forgot-password"
+            className="text-xs font-medium text-content-secondary hover:text-primary"
+          >
             Forgot password?
           </Link>
         </div>
@@ -131,7 +135,7 @@ export default function LoginPage() {
     <Suspense
       fallback={
         <AuthShell title="Welcome back" subtitle="Log in to keep building your brand." footer={null}>
-          <div className="h-48 animate-pulse rounded-xl bg-surface-raised" />
+          <Skeleton className="h-48 rounded-xl" />
         </AuthShell>
       }
     >

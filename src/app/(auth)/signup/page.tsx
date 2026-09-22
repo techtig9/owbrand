@@ -9,6 +9,7 @@ import { AuthShell, FormField, FormError } from '@/components/auth/AuthShell';
 import { GoogleButton } from '@/components/auth/GoogleButton';
 import { toFriendlyAuthError } from '@/lib/auth/auth-errors';
 import { safeRedirectPath } from '@/lib/security/redirect';
+import { Skeleton } from '@/components/ui';
 
 /** Minimum viable password policy, checked before the request is sent. */
 function passwordProblem(password: string): string | null {
@@ -102,8 +103,8 @@ function SignupForm() {
             <MailCheck className="h-6 w-6 text-success" aria-hidden="true" />
           </span>
           <p className="mt-4 text-sm leading-6 text-content-secondary">
-            We sent a verification link to <strong className="text-ink">{email}</strong>. Click it to activate your
-            account, then you&apos;ll be signed straight in.
+            We sent a verification link to <strong className="text-ink">{email}</strong>. Click it to activate
+            your account, then you&apos;ll be signed straight in.
           </p>
           <p className="mt-3 text-xs text-content-tertiary">
             Nothing after a minute? Check your spam folder before trying again.
@@ -196,7 +197,7 @@ export default function SignupPage() {
     <Suspense
       fallback={
         <AuthShell title="Create your account" subtitle="Start with 500 free credits." footer={null}>
-          <div className="h-56 animate-pulse rounded-xl bg-surface-raised" />
+          <Skeleton className="h-56 rounded-xl" />
         </AuthShell>
       }
     >

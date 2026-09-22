@@ -7,6 +7,7 @@ import { Loader2, ShieldCheck } from 'lucide-react';
 import { supabaseBrowser } from '@/lib/supabase/client';
 import { AuthShell, FormField, FormError } from '@/components/auth/AuthShell';
 import { toFriendlyAuthError } from '@/lib/auth/auth-errors';
+import { Skeleton } from '@/components/ui';
 
 function passwordProblem(password: string): string | null {
   if (password.length < 8) return 'Use at least 8 characters.';
@@ -83,7 +84,7 @@ export default function ResetPasswordPage() {
   if (recovery === 'checking') {
     return (
       <AuthShell title="Set a new password" subtitle="Checking your reset link…" footer={null}>
-        <div className="h-32 animate-pulse rounded-xl bg-surface-raised" />
+        <Skeleton className="h-32 rounded-xl" />
       </AuthShell>
     );
   }

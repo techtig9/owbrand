@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Clock, Link2, Loader2, Lock, Unlink } from 'lucide-react';
 import { toast } from 'sonner';
+import { Skeleton } from '@/components/ui';
 
 /**
  * Connected social accounts.
@@ -56,7 +57,9 @@ export function ConnectionsPanel({ brandId }: { brandId?: string }) {
     setLoading(true);
     setError(null);
     try {
-      const url = brandId ? `/api/social/accounts?brandId=${encodeURIComponent(brandId)}` : '/api/social/accounts';
+      const url = brandId
+        ? `/api/social/accounts?brandId=${encodeURIComponent(brandId)}`
+        : '/api/social/accounts';
       const response = await fetch(url);
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? 'Could not load connected accounts.');
@@ -123,7 +126,7 @@ export function ConnectionsPanel({ brandId }: { brandId?: string }) {
     return (
       <div className="space-y-3" role="status" aria-label="Loading connections">
         {[0, 1].map((i) => (
-          <div key={i} className="h-24 animate-pulse rounded-2xl bg-surface-raised" />
+          <Skeleton key={i} className="h-24 rounded-2xl" />
         ))}
       </div>
     );
@@ -152,7 +155,8 @@ export function ConnectionsPanel({ brandId }: { brandId?: string }) {
             This server has no Meta credentials, so accounts cannot be connected. An operator needs to set{' '}
             <code className="rounded bg-surface px-1 py-0.5 font-mono text-[11px]">META_APP_ID</code>,{' '}
             <code className="rounded bg-surface px-1 py-0.5 font-mono text-[11px]">META_APP_SECRET</code> and{' '}
-            <code className="rounded bg-surface px-1 py-0.5 font-mono text-[11px]">TOKEN_ENCRYPTION_KEY</code>.
+            <code className="rounded bg-surface px-1 py-0.5 font-mono text-[11px]">TOKEN_ENCRYPTION_KEY</code>
+            .
           </p>
         </div>
       )}
@@ -205,8 +209,8 @@ export function ConnectionsPanel({ brandId }: { brandId?: string }) {
                     {account.missingScopes.length > 0 && (
                       <p className="mt-2 text-xs leading-5 text-danger">
                         Missing permission{account.missingScopes.length === 1 ? '' : 's'}:{' '}
-                        <span className="font-mono">{account.missingScopes.join(', ')}</span>. Reconnect and grant
-                        them to publish.
+                        <span className="font-mono">{account.missingScopes.join(', ')}</span>. Reconnect and
+                        grant them to publish.
                       </p>
                     )}
 
@@ -254,7 +258,8 @@ export function ConnectionsPanel({ brandId }: { brandId?: string }) {
 
         <p className="mt-4 border-t border-line pt-4 text-[11px] leading-5 text-content-tertiary">
           Disconnecting also asks Meta to revoke OwBrand&rsquo;s access, and destroys the stored credential.
-          Access tokens are encrypted before they are saved and are only ever decrypted by the publishing worker.
+          Access tokens are encrypted before they are saved and are only ever decrypted by the publishing
+          worker.
         </p>
       </section>
 

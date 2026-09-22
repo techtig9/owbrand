@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, CheckCircle2, Clock, ExternalLink, Loader2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import { Skeleton } from '@/components/ui';
 
 /**
  * The publishing queue.
@@ -115,12 +116,16 @@ export function PublishQueue({ brandId }: { brandId?: string }) {
             aria-pressed={filter === option.id}
             onClick={() => setFilter(option.id)}
             className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${
-              filter === option.id ? 'bg-ink text-canvas' : 'border border-line text-content-secondary hover:bg-surface-raised'
+              filter === option.id
+                ? 'bg-ink text-canvas'
+                : 'border border-line text-content-secondary hover:bg-surface-raised'
             }`}
           >
             {option.label}
             {option.id !== 'all' && (
-              <span className="ml-1.5 tabular-nums opacity-70">{counts[option.id as keyof typeof counts]}</span>
+              <span className="ml-1.5 tabular-nums opacity-70">
+                {counts[option.id as keyof typeof counts]}
+              </span>
             )}
           </button>
         ))}
@@ -129,7 +134,7 @@ export function PublishQueue({ brandId }: { brandId?: string }) {
       {loading ? (
         <div className="space-y-3" role="status" aria-label="Loading the queue">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="h-24 animate-pulse rounded-2xl bg-surface-raised" />
+            <Skeleton key={i} className="h-24 rounded-2xl" />
           ))}
         </div>
       ) : error ? (
@@ -167,7 +172,9 @@ export function PublishQueue({ brandId }: { brandId?: string }) {
                   </div>
 
                   {post.caption && (
-                    <p className="mt-3 line-clamp-2 max-w-2xl text-sm leading-6 text-content-secondary">{post.caption}</p>
+                    <p className="mt-3 line-clamp-2 max-w-2xl text-sm leading-6 text-content-secondary">
+                      {post.caption}
+                    </p>
                   )}
 
                   {/* The honest case: a post with no job will never be sent. */}
@@ -180,7 +187,8 @@ export function PublishQueue({ brandId }: { brandId?: string }) {
                   {post.job && post.job.attempts > 0 && post.status !== 'published' && (
                     <p className="mt-3 text-xs leading-5 text-content-secondary">
                       Attempt {post.job.attempts} of {post.job.maxAttempts}
-                      {post.job.nextAttemptAt && ` · next try ${new Date(post.job.nextAttemptAt).toLocaleString()}`}
+                      {post.job.nextAttemptAt &&
+                        ` · next try ${new Date(post.job.nextAttemptAt).toLocaleString()}`}
                     </p>
                   )}
 
@@ -273,10 +281,18 @@ function StatusPill({ status }: { status: string }) {
     failed: { label: 'Failed', className: 'bg-danger-subtle text-danger', icon: AlertTriangle },
     cancelled: { label: 'Cancelled', className: 'bg-surface-raised text-content-tertiary', icon: XCircle },
     draft: { label: 'Draft', className: 'bg-surface-raised text-content-secondary', icon: Clock },
-    awaiting_approval: { label: 'Awaiting approval', className: 'bg-warning-subtle text-warning', icon: Clock },
+    awaiting_approval: {
+      label: 'Awaiting approval',
+      className: 'bg-warning-subtle text-warning',
+      icon: Clock,
+    },
   };
 
-  const entry = map[status] ?? { label: status, className: 'bg-surface-raised text-content-secondary', icon: Clock };
+  const entry = map[status] ?? {
+    label: status,
+    className: 'bg-surface-raised text-content-secondary',
+    icon: Clock,
+  };
   const Icon = entry.icon;
 
   return (

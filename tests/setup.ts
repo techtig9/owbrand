@@ -11,3 +11,16 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key';
 process.env.SUPABASE_SERVICE_ROLE_KEY ??= 'test-service-role-key';
 process.env.NEXT_PUBLIC_SITE_URL ??= 'https://owbrand.test';
 // NODE_ENV is set by Vitest itself and is read-only under @types/node.
+
+/*
+ * jest-dom matchers for the jsdom suites.
+ *
+ * Imported here rather than per-file so a component test cannot pass by
+ * accident: without the matchers, `expect(el).toHaveAttribute(...)` is not a
+ * weaker assertion — it throws, and a test that throws inside an unawaited
+ * assertion can look like a pass depending on how it is written. Registering
+ * them globally removes the chance.
+ *
+ * Harmless in the node-environment suites: it only adds matchers.
+ */
+import '@testing-library/jest-dom/vitest';

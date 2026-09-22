@@ -28,6 +28,11 @@
   --color-surface-sunken: #eff0f3;
   --color-surface-overlay: #ffffff;
 
+  /* Modal/drawer backdrop. Deliberately a token: a hard-coded rgba() in the
+     component would keep a light scrim over the dark theme, where the dialog
+     then floats on a pale haze instead of reading as elevated. */
+  --color-scrim: rgb(16 18 27 / 0.55);
+
   /* --- Text ----------------------------------------------------------- */
   --color-text: #1a1c21;
   --color-text-secondary: #4b5162;
@@ -129,6 +134,9 @@
     --color-surface-raised: #1e212a;
     --color-surface-sunken: #0a0c11;
     --color-surface-overlay: #1e212a;
+    /* Deeper on dark: the same 0.55 over an already-dark page barely
+       separates the dialog from what is behind it. */
+    --color-scrim: rgb(4 5 8 / 0.7);
 
     --color-text: #f2f3f5;
     --color-text-secondary: #b0b6c3;
@@ -191,6 +199,7 @@
   --color-surface-raised: #1e212a;
   --color-surface-sunken: #0a0c11;
   --color-surface-overlay: #1e212a;
+  --color-scrim: rgb(4 5 8 / 0.7);
 
   --color-text: #f2f3f5;
   --color-text-secondary: #b0b6c3;

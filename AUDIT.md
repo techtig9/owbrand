@@ -33,7 +33,7 @@ environment variables: `/` renders 200, `/dashboard` refuses to
 
 | # | Issue | File | Status |
 |---|---|---|---|
-| 4 | **No shared UI primitive library.** `src/components/ui/` does not exist; components are scattered per feature. Missing: Tabs, Modal, Drawer, Tooltip, Table, Avatar, Progress, Select, Textarea. Consequences are already visible: 11 files hand-roll `animate-pulse` skeletons at different heights, so the layout jumps differently on every page, and two files define their own `Stat` card. | `src/components/*` | Phase 3 |
+| 4 | **No shared UI primitive library.** `src/components/ui/` does not exist; components are scattered per feature. Missing: Tabs, Modal, Drawer, Tooltip, Table, Avatar, Progress, Select, Textarea. Consequences are already visible: 11 files hand-roll `animate-pulse` skeletons at different heights, so the layout jumps differently on every page, and two files define their own `Stat` card. | `src/components/*` | **fixed** |
 | 5 | **Four SECURITY DEFINER functions keep the default PUBLIC EXECUTE.** `derive_product_workspace`, `sync_campaign_aliases`, `handle_new_user`, `set_updated_at`. The dangerous ones (`reserve_credits`, `complete_publishing_job`, the `upsert_*` family) are correctly revoked; these four were missed. The last two are trigger functions, so exposure is low, but a definer function callable by `anon` is exactly what the hardening rule names. | `supabase/migrations/*.sql` | **fixed** |
 | 6 | **Three unused dependencies ship in the bundle graph.** `@monaco-editor/react`, `framer-motion`, `clsx` — nothing imports any of them. The first two are large. | `package.json` | **fixed** |
 | 7 | **`.env.example` is out of sync.** Missing `AI_PROVIDER_ORDER` and `ANTHROPIC_MODEL`, which the code reads. Documents `VERCEL_API_TOKEN` and `NETLIFY_API_TOKEN`, which nothing reads now that both deployment adapters return 503. | `.env.example` | **fixed** |
@@ -115,3 +115,50 @@ Two further test-design notes:
   more than the inconvenience.
 
 Database suite: **137/137 against real PostgreSQL 16.**
+
+
+---
+
+## Phase 3 — the primitive library
+
+`src/components/ui/` now exists: Button, Input, Textarea, Select, Tabs, Modal,
+Drawer, Tooltip, Card, Badge, Avatar, Progress, Table, Td, Skeleton,
+LoadingPanel, EmptyState, and a local `cn` (which is why `clsx` could be
+removed — twelve lines against a dependency).
+
+Applied, not just added: **20 hand-rolled `animate-pulse` skeletons across 10
+files** replaced with `<Skeleton>`, `ApprovalInbox`'s private `Stat` card
+replaced with the shared `StatCard`, and `dashboard/shared.tsx` reduced to
+re-exports plus the two genuinely dashboard-shaped compositions. Size and
+radius classes were preserved at each call site — those legitimately vary, and
+rewriting them would have been a visual change dressed as a refactor.
+
+Three API decisions that the type checker then enforced:
+
+- **`EmptyState.action` is required.** This immediately failed to compile on
+  `brand-kit`, which rendered *"Generate a brand in the AI Generator first"*
+  with no link — an instruction naming a destination the reader then had to go
+  and find. It now has a button. A required prop found that; a lint rule could
+  not have.
+- **`Badge.children` is required**, because a badge with no text is state
+  carried by colour alone (WCAG 1.4.1).
+- **`Avatar.name` is required** and is used for both the initial and the
+  accessible name, so an avatar cannot ship as an unlabelled glyph.
+
+While rebuilding `brand-kit` a second bug surfaced: it queried
+`.eq('user_id', user.id)`, so a brand shared through a workspace was invisible
+there while visible on every other screen — the page reported "no brand kit
+yet" for a brand that plainly existed. Now scoped through `accessibleBrandIds`.
+
+26 new component tests cover what justifies each primitive existing — roving
+tabindex, arrow/Home/End navigation, disabled-tab skipping, focus trapping in
+**both** directions, scroll-lock restoration, label/hint/error association,
+and a tooltip that appears on focus, describes rather than renames, and
+dismisses on Escape.
+
+`@testing-library/jest-dom` was added and registered globally in
+`tests/setup.ts` rather than per file, so a component test cannot pass by
+accident through a missing matcher.
+
+Totals: **521 unit tests (32 files)**, zero lint warnings, contrast gate and
+build pass.

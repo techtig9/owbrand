@@ -17,6 +17,7 @@ import {
 import { toast } from 'sonner';
 import { SectionRenderer } from '@/components/website/SectionRenderer';
 import type { SectionContent } from '@/lib/website/schema';
+import { Skeleton } from '@/components/ui';
 
 /**
  * The website editor.
@@ -186,10 +187,14 @@ export function WebsiteBuilder({ brandId }: { brandId: string }) {
 
   if (loading) {
     return (
-      <div className="grid gap-4 lg:grid-cols-[240px_1fr_300px]" role="status" aria-label="Loading the editor">
-        <div className="h-[70vh] animate-pulse rounded-2xl bg-surface-raised" />
-        <div className="h-[70vh] animate-pulse rounded-2xl bg-surface-raised" />
-        <div className="h-[70vh] animate-pulse rounded-2xl bg-surface-raised" />
+      <div
+        className="grid gap-4 lg:grid-cols-[240px_1fr_300px]"
+        role="status"
+        aria-label="Loading the editor"
+      >
+        <Skeleton className="h-[70vh] rounded-2xl" />
+        <Skeleton className="h-[70vh] rounded-2xl" />
+        <Skeleton className="h-[70vh] rounded-2xl" />
         <span className="sr-only">Loading the editor…</span>
       </div>
     );
@@ -224,7 +229,9 @@ export function WebsiteBuilder({ brandId }: { brandId: string }) {
     );
   }
 
-  const orderedSections = activePage ? [...activePage.sections].sort((a, b) => a.sortOrder - b.sortOrder) : [];
+  const orderedSections = activePage
+    ? [...activePage.sections].sort((a, b) => a.sortOrder - b.sortOrder)
+    : [];
 
   /* ---------------------------------------------------------------- *
    * Preview mode — canvas only
@@ -262,7 +269,9 @@ export function WebsiteBuilder({ brandId }: { brandId: string }) {
       <div className="grid gap-4 lg:grid-cols-[240px_1fr_300px]">
         {/* LEFT — pages and sections */}
         <aside className="rounded-2xl border border-line bg-surface p-4">
-          <p className="px-1 text-[10px] font-bold uppercase tracking-[0.16em] text-content-tertiary">Pages</p>
+          <p className="px-1 text-[10px] font-bold uppercase tracking-[0.16em] text-content-tertiary">
+            Pages
+          </p>
           <nav className="mt-2 space-y-1">
             {pages.map((page) => (
               <button
@@ -274,7 +283,9 @@ export function WebsiteBuilder({ brandId }: { brandId: string }) {
                 }}
                 aria-current={page.id === activePage?.id ? 'true' : undefined}
                 className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm ${
-                  page.id === activePage?.id ? 'bg-ink text-canvas' : 'text-content-secondary hover:bg-surface-raised'
+                  page.id === activePage?.id
+                    ? 'bg-ink text-canvas'
+                    : 'text-content-secondary hover:bg-surface-raised'
                 }`}
               >
                 <span className="truncate">{page.title}</span>
@@ -283,7 +294,9 @@ export function WebsiteBuilder({ brandId }: { brandId: string }) {
             ))}
           </nav>
 
-          <p className="mt-6 px-1 text-[10px] font-bold uppercase tracking-[0.16em] text-content-tertiary">Sections</p>
+          <p className="mt-6 px-1 text-[10px] font-bold uppercase tracking-[0.16em] text-content-tertiary">
+            Sections
+          </p>
           <ol className="mt-2 space-y-1">
             {orderedSections.map((section, index) => (
               <li key={section.id} className="flex items-center gap-1">
@@ -378,7 +391,9 @@ function Toolbar(props: {
             aria-pressed={props.breakpoint === value}
             aria-label={label}
             className={`rounded-lg p-2 ${
-              props.breakpoint === value ? 'bg-ink text-canvas' : 'text-content-secondary hover:bg-surface-raised'
+              props.breakpoint === value
+                ? 'bg-ink text-canvas'
+                : 'text-content-secondary hover:bg-surface-raised'
             }`}
           >
             <Icon className="h-4 w-4" aria-hidden="true" />
@@ -519,7 +534,10 @@ function PropertiesPanel(props: {
 
             return (
               <div key={key}>
-                <label htmlFor={id} className="mb-1 block text-xs font-medium capitalize text-content-secondary">
+                <label
+                  htmlFor={id}
+                  className="mb-1 block text-xs font-medium capitalize text-content-secondary"
+                >
                   {key.replace(/([A-Z])/g, ' $1')}
                 </label>
                 {multiline ? (

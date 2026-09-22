@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { TrendChart, type TrendPoint } from './TrendChart';
 import { StatTile, MagnitudeBars } from './StatTile';
 import { compactNumber, formatRate, formatMoney, formatMultiple } from './chart-tokens';
+import { Skeleton } from '@/components/ui';
 
 /**
  * The analytics dashboard.
@@ -201,10 +202,10 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
       <div className="space-y-4" role="status" aria-label="Loading analytics">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {[0, 1, 2, 3].map((i) => (
-            <div key={i} className="h-32 animate-pulse rounded-2xl bg-surface-raised" />
+            <Skeleton key={i} className="h-32 rounded-2xl" />
           ))}
         </div>
-        <div className="h-64 animate-pulse rounded-2xl bg-surface-raised" />
+        <Skeleton className="h-64 rounded-2xl" />
       </div>
     );
   }
@@ -248,7 +249,9 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
             aria-pressed={days === option.days}
             onClick={() => setDays(option.days)}
             className={`rounded-full px-4 py-2 text-xs font-semibold transition-colors ${
-              days === option.days ? 'bg-ink text-canvas' : 'border border-line text-content-secondary hover:bg-surface-raised'
+              days === option.days
+                ? 'bg-ink text-canvas'
+                : 'border border-line text-content-secondary hover:bg-surface-raised'
             }`}
           >
             {option.label}
@@ -314,8 +317,17 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
 
       {(measured('spend') || measured('revenue')) && (
         <div className="grid gap-4 sm:grid-cols-3">
-          <StatTile label="Spend" value={formatMoney(summary.totals.spend ?? 0)} delta={deltaFor('spend')} higherIsBetter={false} />
-          <StatTile label="Attributed revenue" value={formatMoney(summary.totals.revenue ?? 0)} delta={deltaFor('revenue')} />
+          <StatTile
+            label="Spend"
+            value={formatMoney(summary.totals.spend ?? 0)}
+            delta={deltaFor('spend')}
+            higherIsBetter={false}
+          />
+          <StatTile
+            label="Attributed revenue"
+            value={formatMoney(summary.totals.revenue ?? 0)}
+            delta={deltaFor('revenue')}
+          />
           <StatTile label="ROAS" value={formatMultiple(summary.rates.roas)} measured={measured('spend')} />
         </div>
       )}
@@ -340,7 +352,9 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
                 onClick={() => setMetric(option.key)}
                 disabled={!measured(option.key)}
                 className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                  metric === option.key ? 'bg-ink text-canvas' : 'border border-line text-content-secondary hover:bg-surface-raised'
+                  metric === option.key
+                    ? 'bg-ink text-canvas'
+                    : 'border border-line text-content-secondary hover:bg-surface-raised'
                 }`}
                 title={measured(option.key) ? undefined : 'Not reported by the connected platforms'}
               >
@@ -405,7 +419,9 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
                       <td className="py-2 pr-3 tabular-nums text-content-secondary">
                         {campaign.hasData ? compactNumber(campaign.impressions) : '—'}
                       </td>
-                      <td className="py-2 tabular-nums text-content-secondary">{formatRate(campaign.engagementRate)}</td>
+                      <td className="py-2 tabular-nums text-content-secondary">
+                        {formatRate(campaign.engagementRate)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -443,14 +459,23 @@ export function AnalyticsDashboard({ brandId }: { brandId: string }) {
               </thead>
               <tbody>
                 {overview.topPosts.map((post) => (
-                  <tr key={`${post.platform}:${post.externalPostId}`} className="border-b border-line last:border-0">
-                    <td className="py-2 pr-3 font-mono text-xs text-content-secondary">{post.externalPostId.slice(0, 18)}</td>
+                  <tr
+                    key={`${post.platform}:${post.externalPostId}`}
+                    className="border-b border-line last:border-0"
+                  >
+                    <td className="py-2 pr-3 font-mono text-xs text-content-secondary">
+                      {post.externalPostId.slice(0, 18)}
+                    </td>
                     <td className="py-2 pr-3 capitalize text-content-secondary">{post.platform}</td>
                     <td className="py-2 pr-3 text-content-secondary">
                       {post.publishedAt ? new Date(post.publishedAt).toLocaleDateString() : '—'}
                     </td>
-                    <td className="py-2 pr-3 tabular-nums text-content-secondary">{compactNumber(post.impressions)}</td>
-                    <td className="py-2 tabular-nums font-semibold text-ink">{formatRate(post.engagementRate)}</td>
+                    <td className="py-2 pr-3 tabular-nums text-content-secondary">
+                      {compactNumber(post.impressions)}
+                    </td>
+                    <td className="py-2 tabular-nums font-semibold text-ink">
+                      {formatRate(post.engagementRate)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -484,8 +509,9 @@ function CoverageBanner({
           No data ingested
         </p>
         <p className="mt-1 text-sm leading-6 text-content-secondary">
-          Nothing has been measured for {range.from} to {range.to}. Analytics arrive once an account is connected
-          and the ingestion job has run — every figure below would otherwise be a zero nobody measured.{' '}
+          Nothing has been measured for {range.from} to {range.to}. Analytics arrive once an account is
+          connected and the ingestion job has run — every figure below would otherwise be a zero nobody
+          measured.{' '}
           <Link href="/dashboard/connections" className="font-semibold text-ink underline">
             Connect an account
           </Link>

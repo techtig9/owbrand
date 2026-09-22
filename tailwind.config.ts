@@ -208,6 +208,12 @@ const config: Config = {
           '0%': { opacity: '0', transform: 'translateY(8px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
         },
+        /* Drawer entry. translateX only -- animating `right` or `width` would
+           lay out on every frame; a transform composites. */
+        'slide-in-right': {
+          '0%': { opacity: '0', transform: 'translateX(16px)' },
+          '100%': { opacity: '1', transform: 'translateX(0)' },
+        },
       },
       transitionDuration: {
         micro: 'var(--duration-micro)',
@@ -225,6 +231,7 @@ const config: Config = {
         'fade-in': 'fade-in var(--duration-standard) var(--ease-out) both',
         'scale-in': 'scale-in var(--duration-standard) var(--ease-out) both',
         'slide-up': 'slide-up var(--duration-complex) var(--ease-out) both',
+        'slide-in-right': 'slide-in-right var(--duration-standard) var(--ease-out) both',
       },
     },
   },
