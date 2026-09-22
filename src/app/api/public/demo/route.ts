@@ -68,7 +68,13 @@ function unavailableReason(): string | null {
   return null;
 }
 
-export const GET = routeHandler('/api/public/demo', async () => {
+/*
+ * Takes the request even though it does not read it, so the signature matches
+ * every other handler in the app and a caller (including a test) can pass one.
+ * The zero-argument version type-checked in isolation and failed the moment a
+ * test called it the way Next does.
+ */
+export const GET = routeHandler('/api/public/demo', async (_request: Request) => {
   const reason = unavailableReason();
   return NextResponse.json({ available: reason === null, reason });
 });
