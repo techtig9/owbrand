@@ -662,7 +662,13 @@ begin
     'a0000000-0000-0000-0000-0000000000a3', 'retryable_failure',
     null, null, 'retryable', 'meta_http_500', 'Still broken.', null, 90, 60);
 
-  insert into _results values ('publishing: fifth retryable attempt fails the job', job.status = 'failed',
+  -- Was `= 'failed'`. The Phase 7 dead-letter migration splits that bucket:
+  -- exhausting retries on a RETRYABLE error means the platform was broken, not
+  -- the job, and that is the set an operator replays after an incident. This
+  -- assertion was updated to the new, more useful guarantee rather than the
+  -- migration being softened to keep an old assertion green.
+  insert into _results values ('publishing: fifth retryable attempt dead-letters the job',
+    job.status = 'dead_letter',
     format('status %s after %s attempts', job.status, job.attempts));
   insert into _results values ('publishing: exhausted job schedules no retry', job.next_attempt_at is null,
     format('next_attempt_at %s', coalesce(job.next_attempt_at::text, 'null')));
@@ -1629,6 +1635,108 @@ end $$;
 
 reset role;
 reset request.jwt.claim.sub;
+
+-- ---------------------------------------------------------------------------
+-- Dead-letter queue (Phase 7)
+-- ---------------------------------------------------------------------------
+-- The distinction being tested is the whole point of the change: a failure
+-- retrying cannot fix must NOT land in the same bucket as one that ran out of
+-- attempts, because after an incident an operator replays the second set and
+-- must not replay the first.
+do $$
+declare
+  v_brand uuid;
+  v_post uuid;
+  v_job uuid;
+  v_permanent uuid;
+  v_status text;
+  v_reason text;
+  v_attempts integer;
+  v_requeue integer;
+  v_result record;
+  v_post_status text;
+begin
+  select id into v_brand from public.brands limit 1;
+
+  -- A job that will exhaust its retries.
+  insert into public.social_posts (brand_id, platform, caption, status)
+  values (v_brand, 'facebook', 'dead letter test', 'queued')
+  returning id into v_post;
+
+  insert into public.publishing_jobs (social_post_id, brand_id, platform, status, attempts, max_attempts, idempotency_key)
+  values (v_post, v_brand, 'facebook', 'queued', 2, 3, 'dl-test-' || gen_random_uuid())
+  returning id into v_job;
+
+  -- Third attempt of three: retryable, and out of budget.
+  perform public.complete_publishing_job(
+    v_job, 'retryable_failure', null, null, 'transient', 'platform_500', 'upstream 500');
+
+  select status, dead_letter_reason, attempts
+    into v_status, v_reason, v_attempts
+    from public.publishing_jobs where id = v_job;
+
+  insert into _results values
+    ('dead letter: exhausted retries land in dead_letter, not failed', v_status = 'dead_letter', v_status),
+    ('dead letter: the reason records the ceiling', v_reason like 'attempt ceiling reached%%',
+     coalesce(v_reason, 'null')),
+    ('dead letter: the attempt count is preserved', v_attempts = 3, format('%s', v_attempts));
+
+  -- The customer-visible post reads as failed either way: the distinction is
+  -- operational and should not leak into the product as a third state.
+  select status into v_post_status from public.social_posts where id = v_post;
+  insert into _results values
+    ('dead letter: the post reads as failed to the customer', v_post_status = 'failed', v_post_status);
+
+  -- A permanent failure with attempts to spare must NOT be dead-lettered.
+  insert into public.social_posts (brand_id, platform, caption, status)
+  values (v_brand, 'facebook', 'permanent failure test', 'queued')
+  returning id into v_post;
+
+  insert into public.publishing_jobs (social_post_id, brand_id, platform, status, attempts, max_attempts, idempotency_key)
+  values (v_post, v_brand, 'facebook', 'queued', 0, 5, 'dl-perm-' || gen_random_uuid())
+  returning id into v_permanent;
+
+  perform public.complete_publishing_job(
+    v_permanent, 'permanent_failure', null, null, 'permanent', 'post_missing', 'gone');
+
+  select status into v_status from public.publishing_jobs where id = v_permanent;
+  insert into _results values
+    ('dead letter: a permanent failure stays failed', v_status = 'failed', v_status);
+
+  -- Requeue moves the dead-lettered job and resets its budget.
+  select * into v_result from public.requeue_dead_letter_job(v_job);
+  select status, attempts, requeue_count
+    into v_status, v_attempts, v_requeue
+    from public.publishing_jobs where id = v_job;
+
+  insert into _results values
+    ('dead letter: requeue reports success', coalesce(v_result.requeued, false),
+     coalesce(v_result.detail, 'no detail')),
+    ('dead letter: requeue returns the job to the queue', v_status = 'queued', v_status),
+    -- Without the reset the job dead-letters again on its first failure, which
+    -- is indistinguishable from the requeue not working.
+    ('dead letter: requeue resets the attempt budget', v_attempts = 0, format('%s', v_attempts)),
+    ('dead letter: requeue is counted', v_requeue = 1, format('%s', v_requeue));
+
+  -- A second requeue of a now-queued job must refuse: two concurrent requeues
+  -- that both succeeded would publish the same post twice.
+  select * into v_result from public.requeue_dead_letter_job(v_job);
+  insert into _results values
+    ('dead letter: requeue refuses a job that is not dead-lettered',
+     not coalesce(v_result.requeued, true), coalesce(v_result.detail, 'unexpectedly requeued'));
+
+  -- Refusing a permanently failed job is the case that protects a customer
+  -- from having abandoned content republished by a broad sweep.
+  select * into v_result from public.requeue_dead_letter_job(v_permanent);
+  insert into _results values
+    ('dead letter: requeue refuses a permanently failed job',
+     not coalesce(v_result.requeued, true), coalesce(v_result.detail, 'unexpectedly requeued'));
+
+  select * into v_result from public.requeue_dead_letter_job(gen_random_uuid());
+  insert into _results values
+    ('dead letter: requeueing an absent job reports failure rather than raising',
+     not coalesce(v_result.requeued, true), coalesce(v_result.detail, 'no detail'));
+end $$;
 
 -- ---------------------------------------------------------------------------
 -- Report
